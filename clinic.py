@@ -18,6 +18,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import integrations.calendar_calcom as cal
+import integrations.payments_stripe as pay
+import integrations.sms as sms
+import metrics, memory
+
 # ── Clinic profile (override via .env if you like) ──────────────────────────
 CLINIC = {
     "name": os.getenv("BUSINESS_NAME", "Vexium Dental"),
@@ -146,15 +151,38 @@ def _confirmation_code(seed: str) -> str:
     return f"VX-{digest}"
 
 
-def book_appointment(caller_name: str = "", phone: str = "", service: str = "",
-                     preferred_datetime: str = "", language: str = "es", **_) -> dict:
-    """Record a booking. Phase 4 will persist this to appointments.json."""
-    booking = {
-        "caller_name": caller_name,
-        "phone": phone,
-        "service": service,
-        "preferred_datetime": preferred_datetime,
-        "language": language,
-    }
-    code = _confirmation_code(f"{caller_name}|{phone}|{preferred_datetime}")
-    return {"status": "confirmed", "confirmation_code": code, "booking": booking}
+def book_appointment(caller_name="", phone="", service="", preferred_datetime="",
+                     language="es", tenant="dental", call_id="", **_):
+    res = cal.create_booking(preferred_datetime, caller_name, phone, service)
+    if res.get("status") != "booked":
+        return {"status": "error", "message": res.get("detail", "booking failed")}
+    metrics.record(tenant, call_id, "booking_made", service=service)
+    if phone:
+        memory.append_interaction(tenant, phone, f"Booked {service} at {preferred_datetime}")
+    return {"status": "confirmed", "booking_uid": res["booking_uid"],
+            "booking": {"caller_name": caller_name, "phone": phone, "service": service,
+                        "preferred_datetime": res["start"], "language": language}}
+
+def take_deposit(amount_usd=0, service="", phone="", language="es", tenant="dental", call_id="", **_):
+    link = pay.create_deposit_link(float(amount_usd), f"{service} deposit")
+    body = (f"Para confirmar tu cita de {service}, paga el deposito de ${amount_usd}: {link['url']}"
+            if language == "es" else
+            f"To hold your {service} appointment, pay your ${amount_usd} deposit: {link['url']}")
+    sms.send_sms(phone, body)
+    metrics.record(tenant, call_id, "deposit_pending", amount_usd=float(amount_usd), session_id=link["session_id"])
+    return {"status": "link_sent", "url": link["url"], "amount_usd": amount_usd}
+
+def send_confirmation(phone="", message="", **_):
+    return {"status": "sent", "sms": sms.send_sms(phone, message)}
+
+def recall_caller(phone="", tenant="dental", **_):
+    prof = memory.get_caller_profile(tenant, phone)
+    return {"status": "found", "profile": prof} if prof else {"status": "new_caller"}
+
+def escalate_to_human(reason="", caller_name="", phone="", summary="", tenant="dental", call_id="", **_):
+    import os as _os
+    staff = _os.getenv("STAFF_PHONE", "")
+    if staff:
+        sms.send_sms(staff, f"[Vexium handoff] {caller_name} ({phone}): {reason}. {summary}")
+    metrics.record(tenant, call_id, "handoff", reason=reason)
+    return {"status": "escalated", "reason": reason}

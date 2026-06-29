@@ -129,6 +129,10 @@ CLINIC INFO — this is the ONLY factual information you may state. Never invent
 - NEVER claim or promise a time is available without calling check_availability first — you do not know the schedule otherwise.
 - NEVER call book_appointment until availability is confirmed AND the caller said yes to the read-back of all details.
 - Pass dates/times to functions in ISO 8601 (e.g. 2026-06-02T15:00), using TODAY above to get the year right. Speak them to the caller in natural words, never as ISO.
+- At the START of every call, as soon as you have the caller's phone number, call recall_caller. If the profile is found ("status": "found"), greet them by name and briefly acknowledge their history ("Bienvenido de nuevo, [Nombre] — veo que su última visita fue para…").
+- For high-value services (ortodoncia, blanqueamiento), after confirming the booking, offer to send a deposit link: "Para asegurar su cita, ¿le envío el enlace de pago al mismo número?" If they say yes, call take_deposit.
+- After every completed booking, call send_confirmation to send the caller an SMS with the booking details.
+- For emergencies, complaints, requests for a manager, or anything outside your scope, call escalate_to_human immediately — never guess or improvise in those situations.
 
 === OBJECTIONS & EDGE CASES ===
 - No slot works in their range: offer the next couple of open times, or take the request and say a team member will call back with options. Still capture name + phone.
@@ -294,6 +298,107 @@ BOOK_APPOINTMENT_FUNCTION = {
     },
 }
 
+TAKE_DEPOSIT_FUNCTION = {
+    "name": "take_deposit",
+    "description": (
+        "Send a Stripe payment link via SMS so the caller can pay a deposit to hold their appointment. "
+        "Use this for high-value services (ortodoncia, blanqueamiento) after booking is confirmed."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "amount_usd": {
+                "type": "number",
+                "description": "Deposit amount in US dollars (e.g. 40)",
+            },
+            "service": {
+                "type": "string",
+                "description": "Service name the deposit is for (e.g. Ortodoncia)",
+            },
+            "phone": {
+                "type": "string",
+                "description": "Caller's phone number to send the SMS payment link to",
+            },
+            "language": {
+                "type": "string",
+                "enum": ["es", "en"],
+                "description": "Language for the SMS message: 'es' or 'en'",
+            },
+        },
+        "required": ["amount_usd", "service", "phone"],
+    },
+}
+
+SEND_CONFIRMATION_FUNCTION = {
+    "name": "send_confirmation",
+    "description": (
+        "Send an SMS confirmation message to the caller. Call this after every completed booking."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "phone": {
+                "type": "string",
+                "description": "Caller's phone number to send the confirmation to",
+            },
+            "message": {
+                "type": "string",
+                "description": "The full text of the confirmation message to send",
+            },
+        },
+        "required": ["phone", "message"],
+    },
+}
+
+RECALL_CALLER_FUNCTION = {
+    "name": "recall_caller",
+    "description": (
+        "Look up the caller's profile and interaction history by phone number. "
+        "Call this at the START of every call to check if the caller is a returning patient; "
+        "if found, greet them by name and reference their history."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "phone": {
+                "type": "string",
+                "description": "Caller's phone number to look up",
+            },
+        },
+        "required": ["phone"],
+    },
+}
+
+ESCALATE_FUNCTION = {
+    "name": "escalate_to_human",
+    "description": (
+        "Escalate the call to a human staff member. Use for emergencies, complaints, "
+        "or anything out of scope — never guess in those cases. Sends an SMS alert to staff."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "reason": {
+                "type": "string",
+                "description": "Brief reason for escalation (e.g. 'dental emergency', 'caller complaint')",
+            },
+            "caller_name": {
+                "type": "string",
+                "description": "Full name of the caller",
+            },
+            "phone": {
+                "type": "string",
+                "description": "Caller's phone number for staff to call back",
+            },
+            "summary": {
+                "type": "string",
+                "description": "Short summary of the call so far for the staff member",
+            },
+        },
+        "required": ["reason"],
+    },
+}
+
 # ── Restaurant vertical functions ───────────────────────────────────────────
 CHECK_TABLE_AVAILABILITY_FUNCTION = {
     "name": "check_table_availability",
@@ -357,10 +462,16 @@ BOOK_RESERVATION_FUNCTION = {
 VERTICALS = {
     "dental": {
         "prompt": _dental_prompt,
-        "functions": [CHECK_AVAILABILITY_FUNCTION, BOOK_APPOINTMENT_FUNCTION],
+        "functions": [CHECK_AVAILABILITY_FUNCTION, BOOK_APPOINTMENT_FUNCTION,
+                      TAKE_DEPOSIT_FUNCTION, SEND_CONFIRMATION_FUNCTION,
+                      RECALL_CALLER_FUNCTION, ESCALATE_FUNCTION],
         "handlers": {
             "check_availability": clinic.check_availability,
             "book_appointment": clinic.book_appointment,
+            "take_deposit": clinic.take_deposit,
+            "send_confirmation": clinic.send_confirmation,
+            "recall_caller": clinic.recall_caller,
+            "escalate_to_human": clinic.escalate_to_human,
         },
         "greeting": os.getenv(
             "GREETING",
