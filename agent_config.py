@@ -441,26 +441,18 @@ def _listen_provider() -> dict:
 
 
 def _think_block(vertical: str = "dental") -> dict:
-    region = os.getenv("AWS_REGION", "us-east-2")
+    base = os.getenv("QWEN_BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
     return {
         "provider": {
-            "type": "aws_bedrock",
-            "model": os.getenv(
-                "BEDROCK_MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0"
-            ),
+            "type": "open_ai",
+            "model": os.getenv("QWEN_BRAIN_MODEL", "qwen3-max"),
             "temperature": float(os.getenv("LLM_TEMPERATURE", "0.7")),
-            "credentials": {  # nests INSIDE provider
-                "type": "iam",
-                "region": region,
-                "access_key_id": os.getenv("AWS_ACCESS_KEY_ID", ""),
-                "secret_access_key": os.getenv("AWS_SECRET_ACCESS_KEY", ""),
-            },
         },
-        "endpoint": {  # sibling of provider, inside think — REQUIRED for aws_bedrock
-            "url": f"https://bedrock-runtime.{region}.amazonaws.com/"
+        "endpoint": {
+            "url": f"{base}/chat/completions",
+            "headers": {"authorization": f"Bearer {os.environ['DASHSCOPE_API_KEY']}"},
         },
         "prompt": build_system_prompt(vertical),
-        # No `endpoint` on the functions => client-side (handled in the bridge).
         "functions": _vertical(vertical)["functions"],
     }
 
