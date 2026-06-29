@@ -25,6 +25,9 @@ import websockets
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse, JSONResponse
+
+import metrics as metrics
 
 from agent_config import (
     DEEPGRAM_AGENT_URL,
@@ -54,6 +57,20 @@ app.add_middleware(
 @app.get("/")
 def health():
     return {"status": "ok", "service": "vexium-voice-bridge"}
+
+
+@app.get("/summary")
+def summary(tenant: str = "dental"):
+    return JSONResponse(metrics.summary(tenant))
+
+
+@app.get("/events")
+async def events(tenant: str = "dental"):
+    async def gen():
+        while True:
+            yield f"data: {json.dumps(metrics.summary(tenant))}\n\n"
+            await asyncio.sleep(2)
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 async def _handle_function_calls(dg, browser, evt: dict, vertical: str):
