@@ -2,27 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { dict } from "./i18n";
+import { resolveBridgeUrl, resolveHttpBase } from "./bridge";
 import { setupAnalyser, startOrbLoop, spawnRipple } from "./orb-driver";
 
 const OUTPUT_RATE = 24000; // Aura-2 linear16 output
 const MAX_RETRIES = 3;           // auto-reconnect attempts when a connection fails to open
 const CONNECT_TIMEOUT_MS = 6000; // give up on a single attempt after this, then retry
 const CTA_URL = "https://vexiumai.com"; // post-call "book a setup call" link (change freely)
-
-// Resolve the bridge WebSocket URL:
-//  - explicit override (e.g. on Vercel) wins;
-//  - on localhost, talk to the local bridge on :8000;
-//  - otherwise use the SAME origin /ws (the Cloudflare tunnel serves both).
-function resolveBridgeUrl(vertical) {
-  const q = vertical && vertical !== "dental" ? `?v=${encodeURIComponent(vertical)}` : "";
-  if (process.env.NEXT_PUBLIC_BRIDGE_URL) return process.env.NEXT_PUBLIC_BRIDGE_URL + q;
-  if (typeof window !== "undefined") {
-    const { protocol, hostname, host } = window.location;
-    if (hostname === "localhost" || hostname === "127.0.0.1") return "ws://localhost:8000/ws" + q;
-    return `${protocol === "https:" ? "wss" : "ws"}://${host}/ws` + q;
-  }
-  return "ws://localhost:8000/ws" + q;
-}
 
 // Speak an ISO datetime the way a human reads it (locale-aware), with a safe fallback.
 function fmtWhen(iso, lang) {
@@ -72,6 +58,10 @@ export default function CallWidget({ t, demos }) {
   const [langSwitches, setLangSwitches] = useState(0); // ES<->EN swaps this call
   const [copied, setCopied] = useState(false);
   const [orbFx, setOrbFx] = useState(""); // transient orb flash: answering | barging | swap
+  const [mode, setMode] = useState("voice"); // voice (Deepgram bridge) | text (Qwen /chat)
+  const [chatInput, setChatInput] = useState("");
+  const [chatBusy, setChatBusy] = useState(false);
+  const [speakOn, setSpeakOn] = useState(true); // Qwen TTS playback for text replies
 
   const ws = useRef(null);
   const ctx = useRef(null);
@@ -91,6 +81,8 @@ export default function CallWidget({ t, demos }) {
   const lastUserTurnAt = useRef(0); // ms timestamp of the last user turn (for latency)
   const lastLang = useRef(null);    // last bubble language (to count switches)
   const orbFxTimer = useRef(null);  // transient orb-flash timeout
+  const chatAudio = useRef(null);   // current Qwen TTS <audio> (stop before replacing)
+  const chatSeq = useRef(0);        // guards stale /chat responses after a reset
 
   // Audio-reactive orb: the driver owns the analyser graph + rAF smoothing and
   // writes --level / --src straight onto the orb element (no React re-renders).
@@ -113,6 +105,7 @@ export default function CallWidget({ t, demos }) {
     if (retryTimer.current) { clearTimeout(retryTimer.current); retryTimer.current = null; }
     if (orbFxTimer.current) { clearTimeout(orbFxTimer.current); orbFxTimer.current = null; }
     try { stopOrb.current && stopOrb.current(); } catch {}
+    try { chatAudio.current && chatAudio.current.pause(); } catch {}
     try { orbDriver.current && orbDriver.current.dispose(); } catch {}
     try { if (micNode.current) micNode.current.port.onmessage = null; } catch {}
     try { ws.current && ws.current.close(); } catch {}
@@ -136,18 +129,33 @@ export default function CallWidget({ t, demos }) {
     orbFxTimer.current = setTimeout(() => setOrbFx(""), ms);
   }
 
-  function pickVertical(id) {
-    if (statusRef.current !== "idle" || id === vertical) return; // not mid-call, not a no-op
-    setVertical(id);
-    verticalRef.current = id;
-    // Clear the previous call's recap/booking so panels don't mismatch the new business.
+  function resetConversation() {
     setBooking(null);
     setTranscript([]);
     setRecordingUrl(null);
     setLatency(null);
     setBestLatency(null);
     setLangSwitches(0);
+    setError("");
     lastLang.current = null;
+    chatSeq.current += 1; // invalidate in-flight /chat replies
+    setChatBusy(false);
+    try { chatAudio.current && chatAudio.current.pause(); } catch {}
+  }
+
+  function pickVertical(id) {
+    if (statusRef.current !== "idle" || chatBusy || id === vertical) return; // not mid-call, not a no-op
+    setVertical(id);
+    verticalRef.current = id;
+    // Clear the previous call's recap/booking so panels don't mismatch the new business.
+    resetConversation();
+  }
+
+  function pickMode(m) {
+    if (m === mode || statusRef.current === "live" || statusRef.current === "connecting") return;
+    setMode(m);
+    setPhase("idle");
+    resetConversation();
   }
 
   function bargeIn() {
@@ -345,6 +353,69 @@ export default function CallWidget({ t, demos }) {
     setPhase("idle");
   }
 
+  // ── Text mode: the same Qwen3-Max brain over POST /chat (no mic needed) ──
+  async function sendChat(e) {
+    if (e) e.preventDefault();
+    const text = chatInput.trim();
+    if (!text || chatBusy) return;
+    const seq = chatSeq.current;
+    setError("");
+    setChatInput("");
+    const next = [...transcript, { role: "user", text, lang: null }];
+    setTranscript(next);
+    setChatBusy(true);
+    const t0 = performance.now();
+    try {
+      const res = await fetch(`${resolveHttpBase()}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vertical: verticalRef.current,
+          messages: next.map((m) => ({
+            role: m.role === "user" ? "user" : "assistant",
+            content: m.text,
+          })),
+        }),
+      });
+      if (!res.ok) throw new Error(`chat ${res.status}`);
+      const out = await res.json();
+      if (seq !== chatSeq.current) return; // conversation reset while in flight
+      const ms = Math.round(performance.now() - t0);
+      setLatency(ms);
+      setBestLatency((b) => (b == null || ms < b ? ms : b));
+      for (const ev of out.tool_events || []) {
+        const norm = normalizeBooking(ev);
+        if (norm) setBooking(norm);
+      }
+      if (out.reply) {
+        setTranscript((arr) => [...arr, { role: "agent", text: out.reply, lang: null }]);
+        if (speakOn) playQwenTts(out.reply, seq);
+      }
+    } catch {
+      if (seq === chatSeq.current) setError(Lref.current.chatError);
+    } finally {
+      if (seq === chatSeq.current) setChatBusy(false);
+    }
+  }
+
+  // Spoken reply via Qwen TTS (qwen3-tts-flash). Any failure = stay text-only.
+  async function playQwenTts(text, seq) {
+    try {
+      const res = await fetch(`${resolveHttpBase()}/tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) return;
+      const { url } = await res.json();
+      if (!url || seq !== chatSeq.current) return;
+      try { chatAudio.current && chatAudio.current.pause(); } catch {}
+      const audio = new Audio(url);
+      chatAudio.current = audio;
+      audio.play().catch(() => {});
+    } catch {}
+  }
+
   function copySummary() {
     const lines = transcript.map((m) => `${m.role === "user" ? L.you : L.agent}: ${m.text}`);
     let text = `${L.recapTitle} — Vexium AI\n\n${lines.join("\n")}`;
@@ -383,19 +454,49 @@ export default function CallWidget({ t, demos }) {
         ))}
       </div>
 
-      <h2 className="panel-title">{vOpt?.title || L.title}</h2>
-      <p className="hint">{vOpt?.hint || L.hint}</p>
+      <div className="mode-row">
+        <h2 className="panel-title">{vOpt?.title || L.title}</h2>
+        <div className="mode-tabs" role="tablist" aria-label="Voice / text">
+          <button
+            type="button" role="tab" aria-selected={mode === "voice"}
+            className={mode === "voice" ? "on" : ""}
+            onClick={() => pickMode("voice")}
+            disabled={live || connecting || chatBusy}
+          >
+            {L.modeVoice}
+          </button>
+          <button
+            type="button" role="tab" aria-selected={mode === "text"}
+            className={mode === "text" ? "on" : ""}
+            onClick={() => pickMode("text")}
+            disabled={live || connecting || chatBusy}
+          >
+            {L.modeText}
+          </button>
+        </div>
+      </div>
+      <p className="hint">{mode === "text" ? L.textHint : (vOpt?.hint || L.hint)}</p>
 
-      {/* "Try saying…" coaching rail — steers prospects into the wow paths */}
+      {/* "Try saying…" coaching rail — steers prospects into the wow paths.
+          In text mode a chip prefills the input, so one tap starts the flow. */}
       {vOpt?.prompts?.length > 0 && (
         <div className="try-rail">
           <span className="try-label">{L.tryLabel}</span>
           {vOpt.prompts.map((p) => (
-            <span className="try-chip" key={p}>“{p}”</span>
+            <button
+              type="button"
+              className={`try-chip ${mode === "text" ? "tappable" : ""}`}
+              key={p}
+              onClick={() => mode === "text" && setChatInput(p)}
+              tabIndex={mode === "text" ? 0 : -1}
+            >
+              “{p}”
+            </button>
           ))}
         </div>
       )}
 
+      {mode === "voice" && (
       <div className="orb-wrap">
         <button
           ref={orbRef}
@@ -453,6 +554,7 @@ export default function CallWidget({ t, demos }) {
 
         {!live && !connecting && <p className="consent">{L.consent}</p>}
       </div>
+      )}
 
       {/* Booking captured — the "oh, it actually booked me" moment, with the raw data */}
       {booking && (
@@ -496,10 +598,45 @@ export default function CallWidget({ t, demos }) {
             </div>
           ))
         )}
+        {mode === "text" && chatBusy && <div className="typing">{L.thinking}</div>}
       </div>
 
+      {mode === "text" && (
+        <div className="chat-zone">
+          <form className="chat-row" onSubmit={sendChat}>
+            <input
+              className="chat-input"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              placeholder={L.textPlaceholder}
+              aria-label={L.textPlaceholder}
+              maxLength={500}
+              autoComplete="off"
+            />
+            <button className="btn primary" type="submit" disabled={chatBusy || !chatInput.trim()}>
+              {L.send}
+            </button>
+          </form>
+          <div className="chat-meta">
+            <label className="speak-toggle">
+              <input
+                type="checkbox"
+                checked={speakOn}
+                onChange={(e) => setSpeakOn(e.target.checked)}
+              />
+              <span>{L.speakToggle}</span>
+            </label>
+            {latency != null && (
+              <span className="stat-pill"><b>{(latency / 1000).toFixed(1)}s</b> {L.respLabel}</span>
+            )}
+          </div>
+          {error && <p className="chat-error" role="alert">{error}</p>}
+          <p className="consent">{L.poweredText}</p>
+        </div>
+      )}
+
       {/* Post-call recap: replay + the captured data + a real CTA (no dead-end download) */}
-      {showRecap && (
+      {mode === "voice" && showRecap && (
         <div className="recap">
           <div className="recap-head">
             <span className="recap-title">{L.recapTitle}</span>

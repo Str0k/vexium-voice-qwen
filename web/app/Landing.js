@@ -28,6 +28,7 @@ export default function Landing() {
             <a href="#demo">{t.nav.demo}</a>
             <a href="#how">{t.nav.how}</a>
             <a href="#features">{t.nav.features}</a>
+            <a href="/dashboard" className="nav-dash">{t.nav.dash}</a>
           </div>
           <div className="lang" role="group" aria-label="Language">
             <button className={lang === "en" ? "on" : ""} onClick={() => setLang("en")}>EN</button>
