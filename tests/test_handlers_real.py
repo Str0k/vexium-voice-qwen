@@ -16,3 +16,21 @@ def test_take_deposit_sends_link(monkeypatch):
     monkeypatch.setattr(metrics, "record", lambda *a, **k: "e1")
     r = clinic.take_deposit(amount_usd=40, service="Ortodoncia", phone="+17135550182")
     assert r["status"] == "link_sent" and "https://pay" in sent["body"]
+
+def test_book_appointment_simulated_without_calcom(monkeypatch):
+    """A fresh clone (zero keys) still completes the whole booking flow."""
+    monkeypatch.delenv("CALCOM_API_KEY", raising=False)
+    monkeypatch.delenv("CALCOM_EVENT_TYPE_ID", raising=False)
+    monkeypatch.setattr(metrics, "record", lambda *a, **k: "e1")
+    monkeypatch.setattr(memory, "append_interaction", lambda *a, **k: None)
+    r = clinic.book_appointment(caller_name="Ana", phone="+17135550000",
+                                service="Limpieza", preferred_datetime="2026-07-08T15:00")
+    assert r["status"] == "confirmed" and r["calendar"] == "simulated"
+    assert r["confirmation_code"].startswith("VX-")
+
+def test_take_deposit_simulated_without_stripe(monkeypatch):
+    monkeypatch.delenv("STRIPE_API_KEY", raising=False)
+    monkeypatch.setattr(sms, "send_sms", lambda *a, **k: {"status": "skipped"})
+    monkeypatch.setattr(metrics, "record", lambda *a, **k: "e1")
+    r = clinic.take_deposit(amount_usd=40, service="Ortodoncia", phone="+17135550000")
+    assert r["status"] == "link_sent" and r["payments"] == "simulated"

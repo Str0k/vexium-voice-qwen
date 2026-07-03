@@ -1,4 +1,5 @@
 import os
+import uuid
 
 def _default_client():
     import stripe
@@ -6,6 +7,11 @@ def _default_client():
     return stripe
 
 def create_deposit_link(amount_usd: float, description: str, *, client=None) -> dict:
+    if client is None and not os.getenv("STRIPE_API_KEY", "").strip():
+        # Demo mode — no Stripe key: return an obviously-fake link so the flow
+        # completes end-to-end; /status reports payments as simulated.
+        return {"url": f"https://demo-checkout.invalid/deposit-{int(round(amount_usd))}usd",
+                "session_id": f"sim_{uuid.uuid4().hex[:10]}", "simulated": True}
     client = client or _default_client()
     session = client.checkout.Session.create(
         mode="payment",

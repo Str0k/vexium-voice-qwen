@@ -1,6 +1,14 @@
-"""Appointment-reminder core. Live scheduling (APScheduler), persistence, the
-/run-due-reminders endpoint, the Alibaba FC timer, and Cal.com webhooks are
-wired in the deploy phase. This module is the pure, idempotent core."""
+"""Appointment reminders — pure, idempotent core plus store-backed scheduling.
+
+`reminder_times`/`run_due` are the pure core (unit-tested, scheduler-agnostic).
+`schedule_for_booking` persists the T-24h/T-1h reminders when an appointment is
+booked; `run_due_from_store` is what the POST /run-due-reminders endpoint (or an
+Alibaba Function Compute timer in production) calls to fire whatever is due."""
+import time
+import uuid
+from datetime import datetime
+
+import integrations.tablestore_store as store
 
 DAY_MS = 24 * 3600 * 1000
 HOUR_MS = 3600 * 1000
@@ -18,4 +26,51 @@ def run_due(reminders: list, now_ms: int, *, send) -> list:
             send(r)
             r["sent"] = True
             fired.append(r.get("id"))
+    return fired
+
+
+def _parse_start_ms(start_iso: str):
+    s = (start_iso or "").strip().replace(" ", "T")
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%dT%H"):
+        try:
+            return int(datetime.strptime(s, fmt).timestamp() * 1000)
+        except ValueError:
+            continue
+    return None
+
+
+def schedule_for_booking(tenant: str, phone: str, service: str, start_iso: str,
+                         language: str = "es", now_ms: int | None = None) -> list:
+    """Persist the T-24h and T-1h SMS reminders for a booked appointment.
+    Only future send-times are stored. Returns the stored reminder dicts."""
+    start_ms = _parse_start_ms(start_iso)
+    if start_ms is None or not phone:
+        return []
+    now_ms = int(time.time() * 1000) if now_ms is None else now_ms
+    body = (f"Recordatorio: su cita de {service} es el {start_iso.replace('T', ' a las ')}."
+            if language == "es" else
+            f"Reminder: your {service} appointment is on {start_iso.replace('T', ' at ')}.")
+    stored = []
+    for send_at in reminder_times(start_ms):
+        if send_at <= now_ms:
+            continue
+        rem = {"id": uuid.uuid4().hex, "send_at": send_at, "sent": False,
+               "phone": phone, "body": body, "service": service, "start": start_iso}
+        store.put_reminder(tenant, rem)
+        stored.append(rem)
+    return stored
+
+
+def run_due_from_store(tenant: str, now_ms: int | None = None, *, send=None) -> list:
+    """Fire every due, unsent reminder for the tenant (SMS by default), persist
+    the sent flag, and return the fired ids. Safe to call on any schedule."""
+    if send is None:
+        import integrations.sms as sms
+        send = lambda r: sms.send_sms(r.get("phone", ""), r.get("body", ""))  # noqa: E731
+    now_ms = int(time.time() * 1000) if now_ms is None else now_ms
+    rems = store.list_reminders(tenant)
+    fired = run_due(rems, now_ms, send=send)
+    for r in rems:
+        if r.get("id") in fired:
+            store.save_reminder(tenant, r)
     return fired

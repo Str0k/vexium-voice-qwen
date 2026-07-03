@@ -13,10 +13,11 @@ def get_client() -> OTSClient:
 
 TABLES = [
     # (table_name, [(pk_col, pk_type), ...])
-    ("vx_events",   [("tenant", "STRING"), ("event_id", "STRING")]),
-    ("vx_bookings", [("tenant", "STRING"), ("booking_id", "STRING")]),
-    ("vx_callers",  [("tenant", "STRING"), ("phone", "STRING")]),
-    ("vx_tenants",  [("tenant", "STRING")]),
+    ("vx_events",    [("tenant", "STRING"), ("event_id", "STRING")]),
+    ("vx_bookings",  [("tenant", "STRING"), ("booking_id", "STRING")]),
+    ("vx_callers",   [("tenant", "STRING"), ("phone", "STRING")]),
+    ("vx_tenants",   [("tenant", "STRING")]),
+    ("vx_reminders", [("tenant", "STRING"), ("reminder_id", "STRING")]),
 ]
 
 def provision():

@@ -21,7 +21,7 @@ load_dotenv()
 import integrations.calendar_calcom as cal
 import integrations.payments_stripe as pay
 import integrations.sms as sms
-import metrics, memory
+import metrics, memory, reminders
 
 # ── Clinic profile (override via .env if you like) ──────────────────────────
 CLINIC = {
@@ -154,14 +154,22 @@ def _confirmation_code(seed: str) -> str:
 def book_appointment(caller_name="", phone="", service="", preferred_datetime="",
                      language="es", tenant="dental", call_id="", **_):
     res = cal.create_booking(preferred_datetime, caller_name, phone, service)
-    if res.get("status") != "booked":
+    if res.get("status") not in ("booked", "simulated"):
         return {"status": "error", "message": res.get("detail", "booking failed")}
     metrics.record(tenant, call_id, "booking_made", service=service)
     if phone:
         memory.append_interaction(tenant, phone, f"Booked {service} at {preferred_datetime}")
-    return {"status": "confirmed", "booking_uid": res["booking_uid"],
+        try:  # reminders are best-effort — never fail the booking over them
+            reminders.schedule_for_booking(tenant, phone, service, preferred_datetime, language)
+        except Exception:  # noqa: BLE001
+            pass
+    code = _confirmation_code(f"{caller_name}|{phone}|{preferred_datetime}")
+    return {"status": "confirmed", "booking_uid": res.get("booking_uid", ""),
+            "confirmation_code": code,
+            "calendar": "cal.com" if res.get("status") == "booked" else "simulated",
             "booking": {"caller_name": caller_name, "phone": phone, "service": service,
-                        "preferred_datetime": res["start"], "language": language}}
+                        "preferred_datetime": res.get("start", preferred_datetime),
+                        "language": language}}
 
 def take_deposit(amount_usd=0, service="", phone="", language="es", tenant="dental", call_id="", **_):
     link = pay.create_deposit_link(float(amount_usd), f"{service} deposit")
@@ -170,7 +178,8 @@ def take_deposit(amount_usd=0, service="", phone="", language="es", tenant="dent
             f"To hold your {service} appointment, pay your ${amount_usd} deposit: {link['url']}")
     sms.send_sms(phone, body)
     metrics.record(tenant, call_id, "deposit_pending", amount_usd=float(amount_usd), session_id=link["session_id"])
-    return {"status": "link_sent", "url": link["url"], "amount_usd": amount_usd}
+    return {"status": "link_sent", "url": link["url"], "amount_usd": amount_usd,
+            "payments": "simulated" if link.get("simulated") else "stripe"}
 
 def send_confirmation(phone="", message="", **_):
     return {"status": "sent", "sms": sms.send_sms(phone, message)}
