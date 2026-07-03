@@ -2,10 +2,19 @@ import os, httpx
 
 API = "https://api.cal.com/v2/bookings"
 
+
+def is_configured() -> bool:
+    """Live only with BOTH the key and the event type — single source of truth
+    for the demo-mode guard below and for /status."""
+    return bool(os.getenv("CALCOM_API_KEY", "").strip()
+                and os.getenv("CALCOM_EVENT_TYPE_ID", "").strip())
+
+
 def create_booking(start_iso: str, name: str, phone: str, notes: str, *, http=None) -> dict:
-    if not (os.getenv("CALCOM_API_KEY", "").strip() and os.getenv("CALCOM_EVENT_TYPE_ID", "").strip()):
+    if not is_configured():
         # Demo mode — no Cal.com credentials: succeed locally, honestly labeled, so a
         # fresh clone still completes the whole booking flow end-to-end.
+        print("[calendar] SIMULATED booking (set CALCOM_API_KEY + CALCOM_EVENT_TYPE_ID to go live)", flush=True)
         return {"status": "simulated", "booking_uid": "", "start": start_iso}
     headers = {"Authorization": f"Bearer {os.environ['CALCOM_API_KEY']}",
                "cal-api-version": "2024-08-13", "Content-Type": "application/json"}

@@ -19,11 +19,15 @@ def reminder_times(start_ms: int) -> list:
 
 def run_due(reminders: list, now_ms: int, *, send) -> list:
     """Fire every reminder that is due (send_at <= now) and not yet sent.
-    Marks each fired reminder sent=True (idempotent). Returns the fired ids."""
+    Marks each fired reminder sent=True (idempotent). Returns the fired ids.
+    A send() that RAISES leaves its reminder unsent so it retries next tick."""
     fired = []
     for r in reminders:
         if not r.get("sent") and r.get("send_at", 0) <= now_ms:
-            send(r)
+            try:
+                send(r)
+            except Exception:  # noqa: BLE001 — failed delivery must not mark sent
+                continue
             r["sent"] = True
             fired.append(r.get("id"))
     return fired
@@ -63,14 +67,20 @@ def schedule_for_booking(tenant: str, phone: str, service: str, start_iso: str,
 
 def run_due_from_store(tenant: str, now_ms: int | None = None, *, send=None) -> list:
     """Fire every due, unsent reminder for the tenant (SMS by default), persist
-    the sent flag, and return the fired ids. Safe to call on any schedule."""
+    the sent flag, and return the fired ids. Safe to call on any schedule.
+    An SMS provider error leaves the reminder unsent so the next tick retries;
+    'skipped' (no provider configured — demo mode) counts as delivered."""
     if send is None:
         import integrations.sms as sms
-        send = lambda r: sms.send_sms(r.get("phone", ""), r.get("body", ""))  # noqa: E731
+
+        def send(r):
+            res = sms.send_sms(r.get("phone", ""), r.get("body", ""))
+            if res.get("status") == "error":
+                raise RuntimeError(res.get("detail", "sms failed"))
     now_ms = int(time.time() * 1000) if now_ms is None else now_ms
     rems = store.list_reminders(tenant)
-    fired = run_due(rems, now_ms, send=send)
+    fired = set(run_due(rems, now_ms, send=send))
     for r in rems:
         if r.get("id") in fired:
             store.save_reminder(tenant, r)
-    return fired
+    return sorted(fired)

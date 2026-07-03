@@ -155,7 +155,12 @@ export default function CallWidget({ t, demos }) {
     if (m === mode || statusRef.current === "live" || statusRef.current === "connecting") return;
     setMode(m);
     setPhase("idle");
-    resetConversation();
+    setError("");
+    // Keep the conversation: a prospect who just finished a voice call can hop
+    // into Text and continue with full context (recap/booking survive the
+    // round-trip; /chat receives the prior turns as history). Only a vertical
+    // change wipes state.
+    try { chatAudio.current && chatAudio.current.pause(); } catch {}
   }
 
   function bargeIn() {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Logo from "../Logo";
 import { dict } from "../i18n";
 import { resolveHttpBase } from "../bridge";
@@ -63,14 +63,16 @@ function Meter({ label, value }) {
 }
 
 function StackRow({ item, t }) {
-  const state = item.connected ? "on" : item.fallback ? "fallback" : "off";
-  const label = state === "on" ? t.stack.on : state === "fallback" ? t.stack.fallback
-    : item.sim ? t.stack.off : t.stack.offline;
+  // The server declares each service's state (on|fallback|simulated|offline);
+  // the UI just renders the fact.
+  const state = item.state || (item.connected ? "on" : "offline");
+  const label = { on: t.stack.on, fallback: t.stack.fallback, simulated: t.stack.off }[state] || t.stack.offline;
+  const dot = state === "on" ? "on" : state === "fallback" ? "fallback" : "off";
   return (
     <div className={`dash-svc ${item.alibaba ? "alibaba" : ""}`}>
-      <span className={`dash-dot ${state}`} aria-hidden="true" />
+      <span className={`dash-dot ${dot}`} aria-hidden="true" />
       <span className="dash-svc-name">{item.provider}</span>
-      <span className={`dash-svc-state ${state}`}>{label}</span>
+      <span className={`dash-svc-state ${dot}`}>{label}</span>
     </div>
   );
 }
@@ -82,7 +84,6 @@ export default function Dashboard() {
   const [conn, setConn] = useState("connecting"); // connecting | live
   const [feed, setFeed] = useState([]);
   const [stack, setStack] = useState([]);
-  const esRef = useRef(null);
   const t = dict[lang].dash;
   const tenantNames = dict[lang].demos.options;
 
@@ -95,7 +96,6 @@ export default function Dashboard() {
     const base = resolveHttpBase();
     setConn("connecting");
     const es = new EventSource(`${base}/events?tenant=${encodeURIComponent(tenant)}`);
-    esRef.current = es;
     es.onopen = () => setConn("live");
     es.onerror = () => setConn("connecting"); // EventSource auto-reconnects
     es.onmessage = (e) => {
@@ -129,14 +129,7 @@ export default function Dashboard() {
       .then((r) => (r.ok ? r.json() : null))
       .then((s) => {
         if (!s) return;
-        setStack([
-          { ...s.brain, alibaba: true },
-          { ...s.store, alibaba: true, fallback: s.store.backend === "memory" },
-          { ...s.sms, alibaba: (s.sms.provider || "").includes("Alibaba"), sim: true },
-          s.voice, s.tts,
-          { ...s.calendar, sim: true },
-          { ...s.payments, sim: true },
-        ].filter(Boolean));
+        setStack([s.brain, s.store, s.sms, s.voice, s.tts, s.calendar, s.payments].filter(Boolean));
       })
       .catch(() => {});
   }, []);

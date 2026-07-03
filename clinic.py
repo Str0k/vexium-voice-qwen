@@ -159,10 +159,13 @@ def book_appointment(caller_name="", phone="", service="", preferred_datetime=""
     metrics.record(tenant, call_id, "booking_made", service=service)
     if phone:
         memory.append_interaction(tenant, phone, f"Booked {service} at {preferred_datetime}")
-        try:  # reminders are best-effort — never fail the booking over them
-            reminders.schedule_for_booking(tenant, phone, service, preferred_datetime, language)
-        except Exception:  # noqa: BLE001
-            pass
+        try:  # reminders are best-effort — never fail the booking over them.
+            # Schedule off the calendar's normalized start, not the raw request.
+            start = res.get("start") or preferred_datetime
+            if not reminders.schedule_for_booking(tenant, phone, service, start, language):
+                print(f"[reminders] none scheduled for '{start}' (past or unparseable)", flush=True)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[reminders] scheduling failed: {exc}", flush=True)
     code = _confirmation_code(f"{caller_name}|{phone}|{preferred_datetime}")
     return {"status": "confirmed", "booking_uid": res.get("booking_uid", ""),
             "confirmation_code": code,
@@ -173,10 +176,15 @@ def book_appointment(caller_name="", phone="", service="", preferred_datetime=""
 
 def take_deposit(amount_usd=0, service="", phone="", language="es", tenant="dental", call_id="", **_):
     link = pay.create_deposit_link(float(amount_usd), f"{service} deposit")
-    body = (f"Para confirmar tu cita de {service}, paga el deposito de ${amount_usd}: {link['url']}"
-            if language == "es" else
-            f"To hold your {service} appointment, pay your ${amount_usd} deposit: {link['url']}")
-    sms.send_sms(phone, body)
+    if link.get("simulated"):
+        # Never text a dead demo link to a real phone (SMS may be live even when
+        # Stripe isn't) — the flow still completes and the metric still records.
+        print("[payments] simulated link NOT texted to the caller", flush=True)
+    else:
+        body = (f"Para confirmar tu cita de {service}, paga el deposito de ${amount_usd}: {link['url']}"
+                if language == "es" else
+                f"To hold your {service} appointment, pay your ${amount_usd} deposit: {link['url']}")
+        sms.send_sms(phone, body)
     metrics.record(tenant, call_id, "deposit_pending", amount_usd=float(amount_usd), session_id=link["session_id"])
     return {"status": "link_sent", "url": link["url"], "amount_usd": amount_usd,
             "payments": "simulated" if link.get("simulated") else "stripe"}

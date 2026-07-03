@@ -18,6 +18,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import memory, metrics, reminders
+
 # ── Restaurant profile (override via .env if you like) ──────────────────────
 RESTAURANT = {
     "name": os.getenv("REST_NAME", "Vexium Cocina"),
@@ -218,8 +220,10 @@ def _confirmation_code(seed: str) -> str:
 
 def book_reservation(caller_name: str = "", phone: str = "", party_size: int = 0,
                      reservation_datetime: str = "", occasion: str = "",
-                     seating_preference: str = "", language: str = "es", **_) -> dict:
-    """Record a reservation. (Demo: in-memory; persist later.)"""
+                     seating_preference: str = "", language: str = "es",
+                     tenant: str = "restaurant", call_id: str = "", **_) -> dict:
+    """Record a reservation: metric + guest memory + SMS reminders, same
+    bookkeeping contract as the dental vertical so the dashboard adds up."""
     reservation = {
         "caller_name": caller_name,
         "phone": phone,
@@ -229,5 +233,13 @@ def book_reservation(caller_name: str = "", phone: str = "", party_size: int = 0
         "seating_preference": seating_preference,
         "language": language,
     }
+    service = f"Reservación para {party_size}" if language == "es" else f"Reservation for {party_size}"
+    metrics.record(tenant, call_id, "booking_made", service=service)
+    if phone:
+        memory.append_interaction(tenant, phone, f"Reserved table for {party_size} at {reservation_datetime}")
+        try:  # best-effort, never fail the reservation over a reminder
+            reminders.schedule_for_booking(tenant, phone, service, reservation_datetime, language)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[reminders] scheduling failed: {exc}", flush=True)
     code = _confirmation_code(f"{caller_name}|{phone}|{reservation_datetime}|{party_size}")
     return {"status": "confirmed", "confirmation_code": code, "reservation": reservation}

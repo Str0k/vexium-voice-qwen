@@ -15,7 +15,11 @@ def validate_args(raw: str) -> dict:
     except (json.JSONDecodeError, TypeError):
         return {}
 
-def run_turn(messages, tools, vertical, *, client=None, max_steps: int = 5) -> dict:
+def run_turn(messages, tools, vertical, *, client=None, max_steps: int = 5,
+             extra_args: dict | None = None) -> dict:
+    """One conversational turn: let Qwen call tools until it produces a reply.
+    `extra_args` (e.g. {"tenant", "call_id"}) is merged into every tool call so
+    handlers persist to the right tenant partition, same as the voice path."""
     client = client or build_client()
     model = os.getenv("QWEN_BRAIN_MODEL", "qwen3-max")
     convo = list(messages)
@@ -35,7 +39,7 @@ def run_turn(messages, tools, vertical, *, client=None, max_steps: int = 5) -> d
                                                    "arguments": c.function.arguments}} for c in calls]})
         for c in calls:
             args = validate_args(c.function.arguments)
-            result = handle_function(vertical, c.function.name, args)
+            result = handle_function(vertical, c.function.name, {**args, **(extra_args or {})})
             tool_events.append({"name": c.function.name, "arguments": args, "result": result})
             convo.append({"role": "tool", "tool_call_id": c.id,
                           "content": json.dumps(result, ensure_ascii=False)})

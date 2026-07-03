@@ -23,6 +23,14 @@ def _coerce(d: dict) -> dict:
         "notes": str(d.get("notes", "") or ""),
     }
 
+def _extract_json(text: str) -> str:
+    """Judges love wrapping verdicts in ```json fences or prose — pull out the
+    outermost {...} so a well-scored call never silently coerces to 0/0."""
+    t = (text or "").strip()
+    start, end = t.find("{"), t.rfind("}")
+    return t[start:end + 1] if start != -1 and end > start else t
+
+
 def score_call(transcript: str, tool_events: list, *, client=None, model=None) -> dict:
     client = client or build_client()
     model = model or os.getenv("QWEN_BRAIN_MODEL", "qwen3-max")
@@ -33,4 +41,4 @@ def score_call(transcript: str, tool_events: list, *, client=None, model=None) -
         messages=[{"role": "system", "content": JUDGE_SYSTEM}, {"role": "user", "content": user}],
         temperature=0,
     )
-    return _coerce(validate_args(resp.choices[0].message.content))
+    return _coerce(validate_args(_extract_json(resp.choices[0].message.content)))

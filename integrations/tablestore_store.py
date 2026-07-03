@@ -113,10 +113,18 @@ def _range_rows(res) -> list:
 
 
 def _scan(table: str, tenant: str, second_pk: str, limit: int) -> list[dict]:
+    """Range-scan a tenant's rows, following the real SDK's continuation key so
+    tenants with more rows than one page still aggregate completely."""
+    client = get_client()
     start = [("tenant", tenant), (second_pk, tablestore.INF_MIN)]
     end = [("tenant", tenant), (second_pk, tablestore.INF_MAX)]
-    res = get_client().get_range(table, Direction.FORWARD, start, end, limit=limit)
-    return [_attr_dict(r.attribute_columns) for r in _range_rows(res)]
+    out: list[dict] = []
+    while start is not None and len(out) < limit:
+        res = client.get_range(table, Direction.FORWARD, start, end,
+                               limit=min(200, limit - len(out)))
+        out.extend(_attr_dict(r.attribute_columns) for r in _range_rows(res))
+        start = res[1] if isinstance(res, tuple) and len(res) >= 4 else None
+    return out[:limit]
 
 
 # ── Events (metrics / ROI feed) ──────────────────────────────────────────────
@@ -129,7 +137,7 @@ def put_event(tenant: str, call_id: str, event: dict) -> str:
     return eid
 
 
-def list_events(tenant: str, limit: int = 200) -> list[dict]:
+def list_events(tenant: str, limit: int = 1000) -> list[dict]:
     out = []
     for d in _scan(TBL_EVENTS, tenant, "event_id", limit):
         try:
@@ -160,7 +168,7 @@ def put_reminder(tenant: str, reminder: dict) -> str:
     return rid
 
 
-def list_reminders(tenant: str, limit: int = 200) -> list[dict]:
+def list_reminders(tenant: str, limit: int = 1000) -> list[dict]:
     out = []
     for d in _scan(TBL_REMINDERS, tenant, "reminder_id", limit):
         try:

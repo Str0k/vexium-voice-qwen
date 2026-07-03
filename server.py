@@ -41,6 +41,9 @@ import integrations.qwen_tts as qwen_tts
 import integrations.tablestore_store as store
 
 import clinic
+import restaurant
+import integrations.calendar_calcom as cal
+import integrations.payments_stripe as pay
 from agent_config import (
     DEEPGRAM_AGENT_URL,
     VERTICALS,
@@ -83,7 +86,10 @@ def summary(tenant: str = "dental"):
 async def events(tenant: str = "dental"):
     async def gen():
         while True:
-            payload = {**metrics.summary(tenant), "ts": int(datetime.now().timestamp() * 1000)}
+            # Store reads are blocking network I/O — keep them off the event
+            # loop so SSE ticks never stall live voice audio.
+            summary_ = await asyncio.to_thread(metrics.summary, tenant)
+            payload = {**summary_, "ts": int(datetime.now().timestamp() * 1000)}
             yield f"data: {json.dumps(payload)}\n\n"
             await asyncio.sleep(2)
     return StreamingResponse(gen(), media_type="text/event-stream")
@@ -102,30 +108,39 @@ def feed(tenant: str = "dental", limit: int = 50):
 @app.get("/status")
 def status():
     """Which cloud integrations are live right now. Drives the dashboard's
-    'stack' panel — honest about what is connected vs running on a fallback."""
+    'stack' panel — honest about what is connected vs running on a fallback.
+    Each service declares its own `state` (on | fallback | simulated | offline)
+    and `alibaba` flag so the UI renders facts instead of guessing from labels."""
     sms_kind = os.getenv("SMS_PROVIDER", "none").strip().lower()
+    sms_live = sms_kind in ("alibaba", "twilio")
     elevenlabs = bool(os.getenv("ELEVENLABS_API_KEY", "").strip()
                       and os.getenv("ELEVENLABS_VOICE_ID", "").strip())
+    brain_on = bool(os.getenv("DASHSCOPE_API_KEY", "").strip())
+    store_on = store.backend() == "tablestore"
     return {
         "brain": {
             "provider": "Qwen3-Max · Alibaba Cloud Model Studio",
             "model": os.getenv("QWEN_BRAIN_MODEL", "qwen3-max"),
-            "connected": bool(os.getenv("DASHSCOPE_API_KEY", "").strip()),
+            "connected": brain_on, "state": "on" if brain_on else "offline", "alibaba": True,
         },
         "store": {
             "provider": "Alibaba Cloud Tablestore",
             "backend": store.backend(),  # "tablestore" | "memory"
-            "connected": store.backend() == "tablestore",
+            "connected": store_on, "state": "on" if store_on else "fallback", "alibaba": True,
         },
         "sms": {
-            "provider": {"alibaba": "Alibaba Cloud SMS", "twilio": "Twilio SMS"}.get(sms_kind, "SMS (simulated)"),
-            "connected": sms_kind in ("alibaba", "twilio"),
+            "provider": {"alibaba": "Alibaba Cloud SMS", "twilio": "Twilio SMS"}.get(sms_kind, "SMS"),
+            "connected": sms_live, "state": "on" if sms_live else "simulated",
+            "alibaba": sms_kind != "twilio",
         },
-        "voice": {"provider": "Deepgram Voice Agent (Flux STT)", "connected": bool(API_KEY)},
+        "voice": {"provider": "Deepgram Voice Agent (Flux STT)", "connected": bool(API_KEY),
+                  "state": "on" if API_KEY else "offline", "alibaba": False},
         "tts": {"provider": "ElevenLabs Flash v2.5" if elevenlabs else "Deepgram Aura-2",
-                "connected": True},
-        "calendar": {"provider": "Cal.com", "connected": bool(os.getenv("CALCOM_API_KEY", "").strip())},
-        "payments": {"provider": "Stripe", "connected": bool(os.getenv("STRIPE_API_KEY", "").strip())},
+                "connected": True, "state": "on", "alibaba": False},
+        "calendar": {"provider": "Cal.com", "connected": cal.is_configured(),
+                     "state": "on" if cal.is_configured() else "simulated", "alibaba": False},
+        "payments": {"provider": "Stripe", "connected": pay.is_configured(),
+                     "state": "on" if pay.is_configured() else "simulated", "alibaba": False},
     }
 
 
@@ -168,8 +183,15 @@ async def chat(payload: dict):
             status_code=503,
         )
     messages = [{"role": "system", "content": build_system_prompt(vertical)}, *history]
+    # Mint the call id up-front and thread it through the tool calls, so a text
+    # booking's events correlate with its call_handled/call_scored records —
+    # exactly like the voice path.
+    call_id = uuid.uuid4().hex
     try:
-        out = await asyncio.to_thread(qwen_brain.run_turn, messages, _openai_tools(vertical), vertical)
+        out = await asyncio.to_thread(
+            qwen_brain.run_turn, messages, _openai_tools(vertical), vertical,
+            extra_args={"tenant": vertical, "call_id": call_id},
+        )
     except Exception as exc:  # noqa: BLE001 — surface upstream API failures cleanly
         return JSONResponse({"error": "qwen_upstream", "detail": str(exc)[:300]}, status_code=502)
 
@@ -181,10 +203,9 @@ async def chat(payload: dict):
         for ev in out.get("tool_events", [])
     )
     if booked:
-        call_id = uuid.uuid4().hex
         try:
-            metrics.record(vertical, call_id, "call_handled",
-                           turns=len(history) + 1, vertical=vertical, channel="text")
+            await asyncio.to_thread(metrics.record, vertical, call_id, "call_handled",
+                                    turns=len(history) + 1, vertical=vertical, channel="text")
         except Exception as exc:  # noqa: BLE001
             print(f"[metrics] record failed: {exc}", flush=True)
         transcript = [(m["role"], m["content"]) for m in history]
@@ -210,9 +231,10 @@ async def tts(payload: dict):
 
 # ── Voice bridge ─────────────────────────────────────────────────────────────
 
-def _is_after_hours(now: datetime | None = None) -> bool:
+def _is_after_hours(vertical: str = "dental", now: datetime | None = None) -> bool:
     now = now or datetime.now()
-    hours = clinic.BUSINESS_HOURS.get(now.weekday())
+    biz = restaurant if vertical == "restaurant" else clinic
+    hours = biz.BUSINESS_HOURS.get(now.weekday())
     return not hours or not (hours[0] <= now.hour < hours[1])
 
 
@@ -245,8 +267,11 @@ async def _handle_function_calls(dg, browser, evt: dict, vertical: str, call: di
             args = {}
 
         # Tag the business context so handlers persist to the right tenant.
-        result = handle_function(vertical, name,
-                                 {**args, "tenant": call["tenant"], "call_id": call["id"]})
+        # Handlers do blocking I/O (Cal.com, Tablestore, SMS) — run them off the
+        # event loop so live audio keeps flowing for every connection.
+        result = await asyncio.to_thread(
+            handle_function, vertical, name,
+            {**args, "tenant": call["tenant"], "call_id": call["id"]})
         call["tools"].append({"name": name, "arguments": args, "result": result})
 
         await dg.send(json.dumps({
@@ -279,7 +304,11 @@ async def ws_endpoint(browser: WebSocket):
     vertical = (browser.query_params.get("v") or "dental").strip().lower()
     if vertical not in VERTICALS:
         vertical = "dental"
+    # The tenant doubles as the store partition key — allowlist it so anonymous
+    # visitors can't write junk partitions or pollute another tenant's metrics.
     tenant = (browser.query_params.get("tenant") or vertical).strip().lower()
+    if tenant not in VERTICALS:
+        tenant = vertical
 
     settings = build_settings(vertical)  # input linear16 16k, output linear16 24k
 
@@ -370,14 +399,17 @@ async def ws_endpoint(browser: WebSocket):
             pass
     finally:
         # Call bookkeeping: count the call, flag after-hours saves, run QA.
+        # Store writes run off the event loop (other calls may still be live).
         if call["transcript"] or call["tools"]:
-            try:
-                metrics.record(tenant, call["id"], "call_handled",
-                               turns=len(call["transcript"]), vertical=vertical)
-                if _is_after_hours():
-                    metrics.record(tenant, call["id"], "after_hours")
-            except Exception as exc:  # noqa: BLE001
-                print(f"[metrics] record failed: {exc}", flush=True)
+            def _bookkeep():
+                try:
+                    metrics.record(tenant, call["id"], "call_handled",
+                                   turns=len(call["transcript"]), vertical=vertical)
+                    if _is_after_hours(vertical):
+                        metrics.record(tenant, call["id"], "after_hours")
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[metrics] record failed: {exc}", flush=True)
+            await asyncio.to_thread(_bookkeep)
             _score_call_async(tenant, call["id"], call["transcript"], call["tools"])
         try:
             await browser.close()
