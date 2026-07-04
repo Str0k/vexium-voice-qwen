@@ -39,7 +39,7 @@ Internet ──▶ ECS (Ubuntu 22/24, Singapore ap-southeast-1)
 
 ```bash
 sudo apt update && sudo apt install -y python3.11-venv python3-pip git caddy nodejs npm
-git clone https://github.com/<you>/vexium-voice-qwen.git && cd vexium-voice-qwen
+git clone https://github.com/Str0k/vexium-voice-qwen.git && cd vexium-voice-qwen
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env && nano .env        # DASHSCOPE_API_KEY + TABLESTORE_* + SMS keys

@@ -54,12 +54,16 @@ Studio**. El repo original (Claude/Bedrock + demo público 24/7) sigue intacto e
   (checklist + guion de video 2:45 + texto Devpost), docs/DEPLOY_ALIBABA.md (ECS +
   Caddy + systemd + prueba), docs/BLOG_POST.md. Screenshots en docs/screenshots/.
 
+## 🌐 GitHub (publicado 2026-07-03)
+**https://github.com/Str0k/vexium-voice-qwen** — PÚBLICO, licencia MIT detectada,
+description + topics puestos. Historial escaneado (sin claves; nunca se commiteó .env).
+`.mcp.json`, `comandostart.md`, `PLAN.md` y `docs/internal/` quedaron FUERA del repo
+público (gitignored, siguen en disco).
+
 ## ⏭️ LO QUE FALTA (en orden, para ganar)
 1. **Deploy en Alibaba Cloud ECS** (requisito duro) — seguir docs/DEPLOY_ALIBABA.md.
    Región Singapur. Crear instancia Tablestore + RAM key + provision script. Configurar
    SMS si da tiempo (si no, queda "simulated" — es válido y honesto).
-2. **Hacer el repo público en GitHub** (Str0k) con About mostrando MIT. Revisar que no
-   haya secretos en el historial (`git log -p | grep -i key` rápido).
 3. **Grabar la prueba de deployment** (~60s, checklist en DEPLOY_ALIBABA.md §7).
 4. **Grabar el video <3 min** (guion listo en SUBMISSION.md; lunes 9am = alternativas
    determinista, cualquier otra hora = reserva limpia).

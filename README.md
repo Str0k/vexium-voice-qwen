@@ -103,7 +103,7 @@ dashboard's **Cloud stack** panel reports exactly what is real:
 ## Quickstart
 
 ```bash
-git clone <this repo> && cd vexium-voice-qwen
+git clone https://github.com/Str0k/vexium-voice-qwen.git && cd vexium-voice-qwen
 python -m venv .venv && . .venv/Scripts/activate   # or source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env                                # add DASHSCOPE_API_KEY (free tier works)
