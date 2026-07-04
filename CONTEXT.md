@@ -54,6 +54,20 @@ Studio**. El repo original (Claude/Bedrock + demo público 24/7) sigue intacto e
   (checklist + guion de video 2:45 + texto Devpost), docs/DEPLOY_ALIBABA.md (ECS +
   Caddy + systemd + prueba), docs/BLOG_POST.md. Screenshots en docs/screenshots/.
 
+## ☁️ DESPLEGADO EN ALIBABA CLOUD (2026-07-04)
+- **URL pública: http://43.98.197.254** (landing + modo texto + /dashboard). Verificado
+  end-to-end: booking por /chat → evento en Tablestore REAL → juez Qwen 100/100.
+- ECS `vexium-demo` (i-t4n90bwkslbilfzvhtnn), ap-southeast-1a, ecs.e-c1m2.large,
+  $0.03985/h. VPC vpc-t4nk75opbam52jkiin7hu · SG sg-t4n250skmxpiq71psum3 · llave SSH
+  `~/.ssh/vexium_alibaba` (root@43.98.197.254). systemd: vexium-bridge (:8000) +
+  vexium-web (:3000) + Caddy :80 (rutea /ws /chat /tts /summary /events /feed /status
+  /run-due-reminders → bridge). Cron reminders cada 10 min.
+- Tablestore instancia `vexium` (SSD, ap-southeast-1) con las 5 tablas vx_* creadas.
+  El .env del servidor usa el AK admin del usuario RAM `ram` (pendiente opcional:
+  usuario acotado solo-OTS). aliyun CLI local: perfil `vexium`.
+- Sin créditos en la cuenta ($0) — costo estimado hasta Jul 31: ~$27-30 USD.
+- Falta del usuario: grabación de prueba de deploy, video <3min, submission Devpost.
+
 ## 🌐 GitHub (publicado 2026-07-03)
 **https://github.com/Str0k/vexium-voice-qwen** — PÚBLICO, licencia MIT detectada,
 description + topics puestos. Historial escaneado (sin claves; nunca se commiteó .env).
