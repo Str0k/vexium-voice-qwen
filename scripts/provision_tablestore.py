@@ -1,7 +1,10 @@
 """Run ONCE after creating the Tablestore instance in the Alibaba console."""
 import os
 import tablestore
+from dotenv import load_dotenv
 from tablestore import OTSClient, TableMeta, TableOptions, ReservedThroughput, CapacityUnit
+
+load_dotenv()  # read TABLESTORE_* from .env like the server does
 
 def get_client() -> OTSClient:
     return OTSClient(
