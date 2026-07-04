@@ -30,3 +30,9 @@ Thumbs.db
 
 # Superpowers internal tracking
 .superpowers/
+
+# Local/internal only — not part of the public hackathon repo
+.mcp.json
+comandostart.md
+PLAN.md
+docs/internal/
