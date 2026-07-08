@@ -54,19 +54,20 @@ Studio**. El repo original (Claude/Bedrock + demo público 24/7) sigue intacto e
   (checklist + guion de video 2:45 + texto Devpost), docs/DEPLOY_ALIBABA.md (ECS +
   Caddy + systemd + prueba), docs/BLOG_POST.md. Screenshots en docs/screenshots/.
 
-## ☁️ DESPLEGADO EN ALIBABA CLOUD (2026-07-04)
-- **URL pública: http://43.98.197.254** (landing + modo texto + /dashboard). Verificado
-  end-to-end: booking por /chat → evento en Tablestore REAL → juez Qwen 100/100.
-- ECS `vexium-demo` (i-t4n90bwkslbilfzvhtnn), ap-southeast-1a, ecs.e-c1m2.large,
-  $0.03985/h. VPC vpc-t4nk75opbam52jkiin7hu · SG sg-t4n250skmxpiq71psum3 · llave SSH
-  `~/.ssh/vexium_alibaba` (root@43.98.197.254). systemd: vexium-bridge (:8000) +
-  vexium-web (:3000) + Caddy :80 (rutea /ws /chat /tts /summary /events /feed /status
-  /run-due-reminders → bridge). Cron reminders cada 10 min.
-- Tablestore instancia `vexium` (SSD, ap-southeast-1) con las 5 tablas vx_* creadas.
-  El .env del servidor usa el AK admin del usuario RAM `ram` (pendiente opcional:
-  usuario acotado solo-OTS). aliyun CLI local: perfil `vexium`.
-- Sin créditos en la cuenta ($0) — costo estimado hasta Jul 31: ~$27-30 USD.
-- Falta del usuario: grabación de prueba de deploy, video <3min, submission Devpost.
+## ☁️ ALIBABA CLOUD — DESPLEGADO 2026-07-04, **BORRADO 2026-07-06 a petición del usuario**
+El deploy funcionó completo y verificado (booking por /chat → Tablestore real → juez
+Qwen 100/100 en http://43.98.197.254). El 6 de julio el usuario decidió **salirse del
+hackathon** por el tema de cobros (~$0.96/día, créditos free-tier bloqueados por
+"historical order") y pidió borrar todo. Eliminado por API: instancia ECS
+i-t4n90bwkslbilfzvhtnn, keypair vexium-key, SG, vSwitch, VPC, las 5 tablas vx_* y la
+instancia Tablestore `vexium`. Gasto total incurrido: ~$2 USD. Nada sigue facturando.
+
+**Si se retoma antes del deadline (Jul 9 2pm PT):** todo el código/docs siguen listos;
+redeploy completo = ~30 min con `scripts` + docs/DEPLOY_ALIBABA.md (el provision.sh
+usado está en el scratchpad de la sesión / reproducible del doc). El aliyun CLI queda
+configurado (perfil `vexium`) y la llave RAM `ram` sigue activa (sin costo; se puede
+desactivar en RAM → Users). Tickets de soporte por los créditos: 0065D0KD1S (cerrado
+por error) y 006573130TZ (vivo, en loop de bot, sin humano al 6-jul).
 
 ## 🌐 GitHub (publicado 2026-07-03)
 **https://github.com/Str0k/vexium-voice-qwen** — PÚBLICO, licencia MIT detectada,
