@@ -31,10 +31,10 @@ export default function Logo({ size = 40, className = "" }) {
           <stop offset="1" stopColor="#5d6986" stopOpacity="0.5" />
         </linearGradient>
         <radialGradient id={`${uid}-orb`} cx="0.4" cy="0.36" r="0.7">
-          <stop offset="0" stopColor="#eaf6ff" />
-          <stop offset="0.4" stopColor="#6fc0ff" />
-          <stop offset="0.75" stopColor="#3b9bff" />
-          <stop offset="1" stopColor="#1f63d6" />
+          <stop offset="0" stopColor="#f3eaff" />
+          <stop offset="0.4" stopColor="#c084fc" />
+          <stop offset="0.75" stopColor="#a855f7" />
+          <stop offset="1" stopColor="#7c3aed" />
         </radialGradient>
         <filter id={`${uid}-glow`} x="-60%" y="-60%" width="220%" height="220%">
           <feGaussianBlur stdDeviation="6" result="b" />

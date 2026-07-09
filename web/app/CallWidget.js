@@ -59,6 +59,7 @@ export default function CallWidget({ t, demos }) {
   const [copied, setCopied] = useState(false);
   const [orbFx, setOrbFx] = useState(""); // transient orb flash: answering | barging | swap
   const [mode, setMode] = useState("voice"); // voice (Deepgram bridge) | text (Qwen /chat)
+  const [voiceReady, setVoiceReady] = useState(true); // /status: Deepgram configured?
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
   const [speakOn, setSpeakOn] = useState(true); // Qwen TTS playback for text replies
@@ -117,6 +118,29 @@ export default function CallWidget({ t, demos }) {
   }, []);
 
   useEffect(() => () => cleanup(), [cleanup]);
+
+  // If the bridge has no voice provider configured (or we're on plain HTTP,
+  // where the mic APIs don't exist), default to the Qwen text mode and mark
+  // voice as unavailable — never show a dead mic to a judge.
+  useEffect(() => {
+    const insecure = typeof window !== "undefined"
+      && !window.isSecureContext
+      && window.location.hostname !== "localhost";
+    if (insecure) {
+      setVoiceReady(false);
+      setMode("text");
+      return;
+    }
+    fetch(`${resolveHttpBase()}/status`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s) => {
+        if (s && s.voice && !s.voice.connected) {
+          setVoiceReady(false);
+          setMode("text");
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   function setPhase(p) { statusRef.current = p; setStatus(p); }
 
@@ -466,7 +490,8 @@ export default function CallWidget({ t, demos }) {
             type="button" role="tab" aria-selected={mode === "voice"}
             className={mode === "voice" ? "on" : ""}
             onClick={() => pickMode("voice")}
-            disabled={live || connecting || chatBusy}
+            disabled={!voiceReady || live || connecting || chatBusy}
+            title={voiceReady ? undefined : "Voice offline in this deployment — try the Qwen text mode"}
           >
             {L.modeVoice}
           </button>

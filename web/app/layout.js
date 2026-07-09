@@ -10,7 +10,7 @@ export const viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover", // extend under the notch; we pad with safe-area insets
-  themeColor: "#05070e",
+  themeColor: "#0a0614",
 };
 
 export default function RootLayout({ children }) {

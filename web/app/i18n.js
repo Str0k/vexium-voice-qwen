@@ -3,7 +3,7 @@ export const dict = {
   es: {
     nav: { demo: "Demo", how: "Cómo funciona", features: "Capacidades", dash: "Panel en vivo" },
     hero: {
-      badge: "Demo en vivo · español e inglés",
+      badge: "Qwen Edition · demo en vivo · ES/EN",
       titleA: "Tu recepcionista de voz ",
       titleHi: "con IA",
       titleB: ", contestando 24/7.",
@@ -165,7 +165,7 @@ export const dict = {
   en: {
     nav: { demo: "Demo", how: "How it works", features: "Capabilities", dash: "Live dashboard" },
     hero: {
-      badge: "Live demo · Spanish & English",
+      badge: "Qwen Edition · live demo · ES/EN",
       titleA: "Your ",
       titleHi: "AI",
       titleB: " voice receptionist, answering 24/7.",

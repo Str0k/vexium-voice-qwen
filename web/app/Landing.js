@@ -22,6 +22,7 @@ export default function Landing() {
         <a className="brand" href="#top" aria-label="Vexium AI">
           <Logo size={34} />
           <span className="word metal">VEXIUM&nbsp;AI</span>
+          <em className="ed-tag">QWEN EDITION</em>
         </a>
         <div className="nav-right">
           <div className="nav-links">
