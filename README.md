@@ -10,6 +10,12 @@ streams the ROI to a live dashboard.
 Built for the **[Global AI Hackathon Series with Qwen Cloud](https://qwencloud-hackathon.devpost.com/)**
 — Track 4: **Autopilot Agent**.
 
+> ### 🟢 Live demo: **https://47-84-124-106.sslip.io**
+> Running on **Alibaba Cloud ECS (Singapore)** with **Tablestore** connected — available
+> through the judging period (July 31, 2026). Try the **Text** mode (no mic needed) or a
+> full bilingual **Voice** call, then watch it land on the
+> [live dashboard](https://47-84-124-106.sslip.io/dashboard).
+
 ![Live dashboard](docs/screenshots/dashboard.jpeg)
 
 ## Why this matters
@@ -127,8 +133,8 @@ cd web && npm install && npm run dev                # http://localhost:3000
 ### Tests
 
 ```bash
-python -m pytest -q        # 44 tests: brain loop, tools, store fallback, reminders,
-                           # chat/status/feed endpoints, judge coercion, simulated modes
+python -m pytest -q        # 50 tests: brain loop, tools, store fallback, reminders,
+                           # chat/status/feed endpoints, judge robustness, simulated modes
 ```
 
 ## Repo map
