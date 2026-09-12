@@ -73,6 +73,6 @@ These are open engineering needs, not promises of upcoming functionality:
 - Mock both sides of the voice bridge to cover tool events and cancellation errors.
 - Make business-time handling explicit across local and cloud environments.
 - Add persistent booking-conflict protection and concurrent reminder claiming.
-- Add browser smoke tests for text fallback and tenant switching.
+- Extend browser coverage to keyboard navigation and language switching.
 
 Read [architecture and limitations](docs/ARCHITECTURE.md) before choosing a task.
