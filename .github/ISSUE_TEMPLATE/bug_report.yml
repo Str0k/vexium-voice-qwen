@@ -1,0 +1,23 @@
+name: Bug report
+description: Report a reproducible problem in the bridge or web app.
+body:
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: How to reproduce
+      description: Include the smallest example, commands and inputs. Use fictional caller data.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Commit or release, OS, Python, Node, browser and simulated or live integrations.
+    validations:
+      required: true

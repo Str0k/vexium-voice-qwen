@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import Logo from "../Logo";
 import { dict } from "../i18n";
 import { resolveHttpBase } from "../bridge";
@@ -94,7 +95,6 @@ export default function Dashboard() {
   // Live KPIs over SSE (the bridge pushes a fresh summary every 2s).
   useEffect(() => {
     const base = resolveHttpBase();
-    setConn("connecting");
     const es = new EventSource(`${base}/events?tenant=${encodeURIComponent(tenant)}`);
     es.onopen = () => setConn("live");
     es.onerror = () => setConn("connecting"); // EventSource auto-reconnects
@@ -137,10 +137,10 @@ export default function Dashboard() {
   return (
     <div className="wrap dash">
       <nav className="nav">
-        <a className="brand" href="/" aria-label="Vexium AI">
+        <Link className="brand" href="/" aria-label="Vexium AI">
           <Logo size={34} />
           <span className="word metal">VEXIUM&nbsp;AI</span>
-        </a>
+        </Link>
         <div className="nav-right">
           <span className={`dash-live ${conn}`}>
             <span className="live" aria-hidden="true" />
@@ -164,7 +164,13 @@ export default function Dashboard() {
             <button
               type="button" key={o.id}
               className={`chip pick ${o.id === tenant ? "on" : ""}`}
-              onClick={() => setTenant(o.id)}
+              onClick={() => {
+                if (tenant === o.id) return;
+                setTenant(o.id);
+                setConn("connecting");
+                setM(EMPTY);
+                setFeed([]);
+              }}
               aria-pressed={o.id === tenant}
             >
               {o.name}
@@ -252,7 +258,7 @@ export default function Dashboard() {
       </section>
 
       <footer>
-        <a className="dash-back" href="/">{t.backToDemo}</a>
+        <Link className="dash-back" href="/">{t.backToDemo}</Link>
         <span>{dict[lang].footer.tag}</span>
       </footer>
     </div>

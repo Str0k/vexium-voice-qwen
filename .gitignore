@@ -8,6 +8,11 @@ venv/
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
 
 # MVP data capture
 appointments.json
@@ -20,6 +25,8 @@ web/.next/
 web/out/
 web/.vercel/
 web/.env*.local
+web/test-results/
+web/playwright-report/
 
 # Browser-test artifacts (Playwright MCP)
 .playwright-mcp/

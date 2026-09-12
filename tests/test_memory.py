@@ -1,12 +1,20 @@
-import memory, integrations.tablestore_store as store
+import integrations.tablestore_store as store
+import memory
+
 
 class FakeOTS:
-    def __init__(self): self.db = {}
+    def __init__(self):
+        self.db = {}
+
     def put_row(self, table, row):
-        pk = tuple(row.primary_key); self.db[pk] = row.attribute_columns
+        pk = tuple(row.primary_key)
+        self.db[pk] = row.attribute_columns
+
     def get_row(self, table, pk, *a, **k):
-        key = tuple(pk); cols = self.db.get(key)
+        key = tuple(pk)
+        cols = self.db.get(key)
         return (None, None) if cols is None else (None, list(cols))
+
 
 def test_round_trip_profile(monkeypatch):
     fake = FakeOTS()

@@ -1,16 +1,25 @@
 {
   "name": "vexium-voice-web",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint .",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
-    "next": "^14.2.5",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "next": "16.3.5",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.3.5"
+  },
+  "engines": {
+    "node": ">=22.13.0"
   }
 }

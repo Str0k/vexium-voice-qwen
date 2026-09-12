@@ -1,10 +1,17 @@
 import integrations.tablestore_store as store
 
+
 class FakeOTS:
-    def __init__(self): self.rows = []
-    def put_row(self, table, row): self.rows.append((table, row)); return None
+    def __init__(self):
+        self.rows = []
+
+    def put_row(self, table, row):
+        self.rows.append((table, row))
+        return None
+
     def get_range(self, *a, **k):
         return None, [], None
+
 
 def test_put_event_returns_id(monkeypatch):
     monkeypatch.setattr(store, "get_client", lambda: FakeOTS())

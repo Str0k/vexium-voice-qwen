@@ -9,20 +9,17 @@
 //              (no React state -> no re-render) for the cursor-follow glow.
 
 import { useEffect, useRef, useState } from "react";
-
-const prefersReduced = () =>
-  typeof window !== "undefined" &&
-  window.matchMedia &&
-  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+import { useReducedMotion } from "./browser-capabilities";
 
 export function Reveal({ as: Tag = "div", className = "", delay, children, ...rest }) {
   const ref = useRef(null);
   const [shown, setShown] = useState(false);
+  const reduced = useReducedMotion();
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    if (prefersReduced() || !("IntersectionObserver" in window)) { setShown(true); return; }
+    if (reduced) return;
     const io = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) { setShown(true); io.disconnect(); }
@@ -31,11 +28,11 @@ export function Reveal({ as: Tag = "div", className = "", delay, children, ...re
     );
     io.observe(el);
     return () => io.disconnect();
-  }, []);
+  }, [reduced]);
 
   const style = delay != null ? { transitionDelay: `${delay}ms` } : undefined;
   return (
-    <Tag ref={ref} className={`reveal ${shown ? "in" : ""} ${className}`.trim()} style={style} {...rest}>
+    <Tag ref={ref} className={`reveal ${shown || reduced ? "in" : ""} ${className}`.trim()} style={style} {...rest}>
       {children}
     </Tag>
   );
@@ -44,11 +41,12 @@ export function Reveal({ as: Tag = "div", className = "", delay, children, ...re
 export function CountUp({ to, decimals = 0, prefix = "", suffix = "" }) {
   const ref = useRef(null);
   const [val, setVal] = useState(0);
+  const reduced = useReducedMotion();
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    if (prefersReduced() || !("IntersectionObserver" in window)) { setVal(to); return; }
+    if (reduced) return;
     let raf = 0;
     const io = new IntersectionObserver(
       ([entry]) => {
@@ -68,12 +66,12 @@ export function CountUp({ to, decimals = 0, prefix = "", suffix = "" }) {
     );
     io.observe(el);
     return () => { io.disconnect(); if (raf) cancelAnimationFrame(raf); };
-  }, [to]);
+  }, [to, reduced]);
 
   return (
     <span ref={ref}>
       {prefix}
-      {val.toFixed(decimals)}
+      {(reduced ? to : val).toFixed(decimals)}
       {suffix}
     </span>
   );

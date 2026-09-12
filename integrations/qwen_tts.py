@@ -2,6 +2,7 @@
 the text demo mode, so the no-microphone path is still voice-first and 100% Qwen.
 Returns a short-lived audio URL the browser plays directly; any upstream problem
 degrades to text-only (callers must treat status != 'ok' as non-fatal)."""
+
 import os
 from urllib.parse import urlsplit
 
@@ -15,7 +16,11 @@ def _api_url() -> str:
     proxy in one env var moves brain AND voice together."""
     base = os.getenv("QWEN_BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
     parts = urlsplit(base)
-    host = f"{parts.scheme}://{parts.netloc}" if parts.netloc else "https://dashscope-intl.aliyuncs.com"
+    host = (
+        f"{parts.scheme}://{parts.netloc}"
+        if parts.netloc
+        else "https://dashscope-intl.aliyuncs.com"
+    )
     return f"{host}/api/v1/services/aigc/multimodal-generation/generation"
 
 

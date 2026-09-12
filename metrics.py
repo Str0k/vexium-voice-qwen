@@ -1,6 +1,7 @@
 """Per-tenant call metrics on the event store: record() appends an event,
 summary() aggregates the live ROI numbers plus the Qwen-as-judge quality scores
 that the dashboard streams over SSE."""
+
 import integrations.tablestore_store as store
 
 
@@ -18,8 +19,12 @@ def summary(tenant: str) -> dict:
 
     return {
         "bookings": sum(1 for e in events if e.get("type") == "booking_made"),
-        "revenue_usd": float(sum(e.get("amount_usd", 0) for e in events if e.get("type") == "deposit_collected")),
-        "deposits_pending_usd": float(sum(e.get("amount_usd", 0) for e in events if e.get("type") == "deposit_pending")),
+        "revenue_usd": float(
+            sum(e.get("amount_usd", 0) for e in events if e.get("type") == "deposit_collected")
+        ),
+        "deposits_pending_usd": float(
+            sum(e.get("amount_usd", 0) for e in events if e.get("type") == "deposit_pending")
+        ),
         "calls": sum(1 for e in events if e.get("type") == "call_handled"),
         "handoffs": sum(1 for e in events if e.get("type") == "handoff"),
         "after_hours": sum(1 for e in events if e.get("type") == "after_hours"),
