@@ -11,6 +11,7 @@ touching telephony.
 Milestone: speak into your mic; the agent should reply with voice and you should
 see the live transcript in the terminal.
 """
+
 import asyncio
 import json
 import os
@@ -35,11 +36,11 @@ _speak_state = {"lang": "es"}
 
 load_dotenv()
 
-MIC_RATE = 16000   # linear16 mono sent to Deepgram
-SPK_RATE = 24000   # Aura-2 linear16 output
-MIC_BLOCK = 1600   # 100 ms @ 16 kHz
+MIC_RATE = 16000  # linear16 mono sent to Deepgram
+SPK_RATE = 24000  # Aura-2 linear16 output
+MIC_BLOCK = 1600  # 100 ms @ 16 kHz
 CHANNELS = 1
-SAMPLE_BYTES = 2   # int16
+SAMPLE_BYTES = 2  # int16
 
 API_KEY = os.getenv("DEEPGRAM_API_KEY")
 
@@ -124,12 +125,16 @@ async def _handle_function_calls(ws, evt: dict):
             print(f"⚠️  Unknown function requested: {name}", file=sys.stderr)
             result = {"status": "error", "message": f"unknown function {name}"}
 
-        await ws.send(json.dumps({
-            "type": "FunctionCallResponse",
-            "id": fn.get("id"),
-            "name": name,
-            "content": json.dumps(result, ensure_ascii=False),  # content must be a string
-        }))
+        await ws.send(
+            json.dumps(
+                {
+                    "type": "FunctionCallResponse",
+                    "id": fn.get("id"),
+                    "name": name,
+                    "content": json.dumps(result, ensure_ascii=False),  # content must be a string
+                }
+            )
+        )
 
 
 async def _receiver(ws, stop: asyncio.Event):
@@ -155,9 +160,14 @@ async def _receiver(ws, stop: asyncio.Event):
                     lang = detect_language(evt.get("content", ""))
                     if lang and lang != _speak_state["lang"]:
                         _speak_state["lang"] = lang
-                        await ws.send(json.dumps({
-                            "type": "UpdateSpeak", "speak": speak_for_language(lang),
-                        }))
+                        await ws.send(
+                            json.dumps(
+                                {
+                                    "type": "UpdateSpeak",
+                                    "speak": speak_for_language(lang),
+                                }
+                            )
+                        )
             elif kind == "UserStartedSpeaking":
                 _flush_agent_audio()  # barge-in
             elif kind == "FunctionCallRequest":
@@ -176,8 +186,10 @@ async def main():
     settings = build_settings()
     think = settings["agent"]["think"]["provider"]
     if not think.get("credentials", {}).get("access_key_id"):
-        print("⚠️  AWS credentials look empty — Bedrock calls will fail. Check .env.\n",
-              file=sys.stderr)
+        print(
+            "⚠️  AWS credentials look empty — Bedrock calls will fail. Check .env.\n",
+            file=sys.stderr,
+        )
 
     print(f"Connecting to {DEEPGRAM_AGENT_URL} …")
     print(f"  STT : {settings['agent']['listen']['provider']['model']}")
@@ -197,11 +209,16 @@ async def main():
         stop = asyncio.Event()
 
         in_stream = sd.RawInputStream(
-            samplerate=MIC_RATE, blocksize=MIC_BLOCK, channels=CHANNELS,
-            dtype="int16", callback=_mic_callback,
+            samplerate=MIC_RATE,
+            blocksize=MIC_BLOCK,
+            channels=CHANNELS,
+            dtype="int16",
+            callback=_mic_callback,
         )
         out_stream = sd.RawOutputStream(
-            samplerate=SPK_RATE, channels=CHANNELS, dtype="int16",
+            samplerate=SPK_RATE,
+            channels=CHANNELS,
+            dtype="int16",
             callback=_spk_callback,
         )
         with in_stream, out_stream:

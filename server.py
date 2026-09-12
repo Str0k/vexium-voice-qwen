@@ -20,8 +20,10 @@ fires due appointment reminders (call it from cron or an Alibaba FC timer).
 Run locally:
     uvicorn server:app --host 0.0.0.0 --port 8000
 """
+
 import asyncio
 import json
+import logging
 import os
 import threading
 import uuid
@@ -31,19 +33,18 @@ import websockets
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
+import clinic
 import evaluation
+import integrations.calendar_calcom as cal
+import integrations.payments_stripe as pay
+import integrations.qwen_tts as qwen_tts
+import integrations.tablestore_store as store
 import metrics
 import qwen_brain
 import reminders
-import integrations.qwen_tts as qwen_tts
-import integrations.tablestore_store as store
-
-import clinic
 import restaurant
-import integrations.calendar_calcom as cal
-import integrations.payments_stripe as pay
 from agent_config import (
     DEEPGRAM_AGENT_URL,
     VERTICALS,
@@ -53,12 +54,14 @@ from agent_config import (
     handle_function,
     speak_for_language,
 )
+from api_models import ChatRequest, SpeechRequest
 
 load_dotenv()
 
 API_KEY = os.getenv("DEEPGRAM_API_KEY")
 
 app = FastAPI(title="Vexium Voice Bridge")
+logger = logging.getLogger(__name__)
 
 # The browser (any preview/prod URL) connects cross-origin. The WS itself isn't
 # CORS-restricted, but the HTTP routes benefit from permissive CORS.
@@ -77,6 +80,7 @@ def health():
 
 # ── Ops / dashboard API ──────────────────────────────────────────────────────
 
+
 @app.get("/summary")
 def summary(tenant: str = "dental"):
     return JSONResponse(metrics.summary(tenant))
@@ -92,6 +96,7 @@ async def events(tenant: str = "dental"):
             payload = {**summary_, "ts": int(datetime.now().timestamp() * 1000)}
             yield f"data: {json.dumps(payload)}\n\n"
             await asyncio.sleep(2)
+
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
@@ -99,10 +104,12 @@ async def events(tenant: str = "dental"):
 def feed(tenant: str = "dental", limit: int = 50):
     """Latest raw events (newest first) for the dashboard's live activity feed."""
     evts = store.list_events(tenant)
-    out = [{"ts": e.get("ts", 0), "call_id": e.get("call_id", ""), **(e.get("payload") or {})}
-           for e in evts]
+    out = [
+        {"ts": e.get("ts", 0), "call_id": e.get("call_id", ""), **(e.get("payload") or {})}
+        for e in evts
+    ]
     out.sort(key=lambda e: e.get("ts", 0), reverse=True)
-    return {"events": out[:max(1, min(limit, 200))]}
+    return {"events": out[: max(1, min(limit, 200))]}
 
 
 @app.get("/status")
@@ -113,34 +120,58 @@ def status():
     and `alibaba` flag so the UI renders facts instead of guessing from labels."""
     sms_kind = os.getenv("SMS_PROVIDER", "none").strip().lower()
     sms_live = sms_kind in ("alibaba", "twilio")
-    elevenlabs = bool(os.getenv("ELEVENLABS_API_KEY", "").strip()
-                      and os.getenv("ELEVENLABS_VOICE_ID", "").strip())
+    elevenlabs = bool(
+        os.getenv("ELEVENLABS_API_KEY", "").strip() and os.getenv("ELEVENLABS_VOICE_ID", "").strip()
+    )
     brain_on = bool(os.getenv("DASHSCOPE_API_KEY", "").strip())
     store_on = store.backend() == "tablestore"
     return {
         "brain": {
             "provider": "Qwen3-Max · Alibaba Cloud Model Studio",
             "model": os.getenv("QWEN_BRAIN_MODEL", "qwen3-max"),
-            "connected": brain_on, "state": "on" if brain_on else "offline", "alibaba": True,
+            "connected": brain_on,
+            "state": "on" if brain_on else "offline",
+            "alibaba": True,
         },
         "store": {
             "provider": "Alibaba Cloud Tablestore",
             "backend": store.backend(),  # "tablestore" | "memory"
-            "connected": store_on, "state": "on" if store_on else "fallback", "alibaba": True,
+            "connected": store_on,
+            "state": "on" if store_on else "fallback",
+            "alibaba": True,
         },
         "sms": {
-            "provider": {"alibaba": "Alibaba Cloud SMS", "twilio": "Twilio SMS"}.get(sms_kind, "SMS"),
-            "connected": sms_live, "state": "on" if sms_live else "simulated",
+            "provider": {"alibaba": "Alibaba Cloud SMS", "twilio": "Twilio SMS"}.get(
+                sms_kind, "SMS"
+            ),
+            "connected": sms_live,
+            "state": "on" if sms_live else "simulated",
             "alibaba": sms_kind != "twilio",
         },
-        "voice": {"provider": "Deepgram Voice Agent (Flux STT)", "connected": bool(API_KEY),
-                  "state": "on" if API_KEY else "offline", "alibaba": False},
-        "tts": {"provider": "ElevenLabs Flash v2.5" if elevenlabs else "Deepgram Aura-2",
-                "connected": True, "state": "on", "alibaba": False},
-        "calendar": {"provider": "Cal.com", "connected": cal.is_configured(),
-                     "state": "on" if cal.is_configured() else "simulated", "alibaba": False},
-        "payments": {"provider": "Stripe", "connected": pay.is_configured(),
-                     "state": "on" if pay.is_configured() else "simulated", "alibaba": False},
+        "voice": {
+            "provider": "Deepgram Voice Agent (Flux STT)",
+            "connected": bool(API_KEY),
+            "state": "on" if API_KEY else "offline",
+            "alibaba": False,
+        },
+        "tts": {
+            "provider": "ElevenLabs Flash v2.5" if elevenlabs else "Deepgram Aura-2",
+            "connected": True,
+            "state": "on",
+            "alibaba": False,
+        },
+        "calendar": {
+            "provider": "Cal.com",
+            "connected": cal.is_configured(),
+            "state": "on" if cal.is_configured() else "simulated",
+            "alibaba": False,
+        },
+        "payments": {
+            "provider": "Stripe",
+            "connected": pay.is_configured(),
+            "state": "on" if pay.is_configured() else "simulated",
+            "alibaba": False,
+        },
     }
 
 
@@ -156,30 +187,25 @@ def run_due_reminders(tenant: str = "dental"):
 
 # ── Text mode — the same Qwen3-Max brain, no microphone required ─────────────
 
+
 def _openai_tools(vertical: str) -> list:
     return [{"type": "function", "function": f} for f in VERTICALS[vertical]["functions"]]
 
 
 @app.post("/chat")
-async def chat(payload: dict):
+async def chat(payload: ChatRequest):
     """One text turn against the vertical's Qwen3-Max function-calling brain.
     Body: {vertical, messages:[{role:'user'|'assistant', content}...]}.
     Returns {reply, tool_events} — tool_events carry the structured booking data
     the UI renders as the 'booking captured' card."""
-    vertical = (payload.get("vertical") or "dental").strip().lower()
-    if vertical not in VERTICALS:
-        vertical = "dental"
-    history = [
-        {"role": m.get("role"), "content": str(m.get("content", ""))[:2000]}
-        for m in (payload.get("messages") or [])
-        if m.get("role") in ("user", "assistant") and str(m.get("content", "")).strip()
-    ][-24:]
-    if not history:
-        return JSONResponse({"error": "empty_conversation"}, status_code=422)
+    vertical = payload.vertical
+    history = [message.model_dump() for message in payload.messages]
     if not os.getenv("DASHSCOPE_API_KEY", "").strip():
         return JSONResponse(
-            {"error": "qwen_not_configured",
-             "detail": "Set DASHSCOPE_API_KEY to enable the Qwen text mode."},
+            {
+                "error": "qwen_not_configured",
+                "detail": "Set DASHSCOPE_API_KEY to enable the Qwen text mode.",
+            },
             status_code=503,
         )
     messages = [{"role": "system", "content": build_system_prompt(vertical)}, *history]
@@ -189,11 +215,21 @@ async def chat(payload: dict):
     call_id = uuid.uuid4().hex
     try:
         out = await asyncio.to_thread(
-            qwen_brain.run_turn, messages, _openai_tools(vertical), vertical,
+            qwen_brain.run_turn,
+            messages,
+            _openai_tools(vertical),
+            vertical,
             extra_args={"tenant": vertical, "call_id": call_id},
         )
     except Exception as exc:  # noqa: BLE001 — surface upstream API failures cleanly
-        return JSONResponse({"error": "qwen_upstream", "detail": str(exc)[:300]}, status_code=502)
+        logger.warning("Chat provider failed (%s), call_id=%s", type(exc).__name__, call_id)
+        return JSONResponse(
+            {
+                "error": "qwen_upstream",
+                "detail": "The model provider could not complete this turn.",
+            },
+            status_code=502,
+        )
 
     # A text conversation that lands a booking counts as a handled contact and
     # gets the same Qwen-as-judge QA pass as a finished voice call.
@@ -204,8 +240,15 @@ async def chat(payload: dict):
     )
     if booked:
         try:
-            await asyncio.to_thread(metrics.record, vertical, call_id, "call_handled",
-                                    turns=len(history) + 1, vertical=vertical, channel="text")
+            await asyncio.to_thread(
+                metrics.record,
+                vertical,
+                call_id,
+                "call_handled",
+                turns=len(history) + 1,
+                vertical=vertical,
+                channel="text",
+            )
         except Exception as exc:  # noqa: BLE001
             print(f"[metrics] record failed: {exc}", flush=True)
         transcript = [(m["role"], m["content"]) for m in history]
@@ -216,20 +259,21 @@ async def chat(payload: dict):
 
 
 @app.post("/tts")
-async def tts(payload: dict):
+async def tts(payload: SpeechRequest):
     """Speak a text-mode reply with Qwen TTS (qwen3-tts-flash). Returns a
     short-lived audio URL; the UI treats any error as 'stay text-only'."""
-    text = str(payload.get("text", "")).strip()[:600]
-    if not text:
-        return JSONResponse({"error": "empty_text"}, status_code=422)
-    lang = payload.get("language") or detect_language(text) or "auto"
+    text = payload.text[:600]
+    lang = payload.language or detect_language(text) or "auto"
     out = await asyncio.to_thread(qwen_tts.synthesize, text, lang)
     if out.get("status") != "ok":
-        return JSONResponse({"error": "tts_failed", "detail": out.get("detail", "")}, status_code=502)
+        return JSONResponse(
+            {"error": "tts_failed", "detail": out.get("detail", "")}, status_code=502
+        )
     return out
 
 
 # ── Voice bridge ─────────────────────────────────────────────────────────────
+
 
 def _is_after_hours(vertical: str = "dental", now: datetime | None = None) -> bool:
     now = now or datetime.now()
@@ -270,24 +314,36 @@ async def _handle_function_calls(dg, browser, evt: dict, vertical: str, call: di
         # Handlers do blocking I/O (Cal.com, Tablestore, SMS) — run them off the
         # event loop so live audio keeps flowing for every connection.
         result = await asyncio.to_thread(
-            handle_function, vertical, name,
-            {**args, "tenant": call["tenant"], "call_id": call["id"]})
+            handle_function,
+            vertical,
+            name,
+            {**args, "tenant": call["tenant"], "call_id": call["id"]},
+        )
         call["tools"].append({"name": name, "arguments": args, "result": result})
 
-        await dg.send(json.dumps({
-            "type": "FunctionCallResponse",
-            "id": fn.get("id"),
-            "name": name,
-            "content": json.dumps(result, ensure_ascii=False),
-        }))
+        await dg.send(
+            json.dumps(
+                {
+                    "type": "FunctionCallResponse",
+                    "id": fn.get("id"),
+                    "name": name,
+                    "content": json.dumps(result, ensure_ascii=False),
+                }
+            )
+        )
         # Surface the same structured result to the UI (the "booking captured" card).
         try:
-            await browser.send_text(json.dumps({
-                "type": "FunctionResult",
-                "name": name,
-                "arguments": args,
-                "result": result,
-            }, ensure_ascii=False))
+            await browser.send_text(
+                json.dumps(
+                    {
+                        "type": "FunctionResult",
+                        "name": name,
+                        "arguments": args,
+                        "result": result,
+                    },
+                    ensure_ascii=False,
+                )
+            )
         except (WebSocketDisconnect, RuntimeError):
             pass
 
@@ -296,7 +352,9 @@ async def _handle_function_calls(dg, browser, evt: dict, vertical: str, call: di
 async def ws_endpoint(browser: WebSocket):
     await browser.accept()
     if not API_KEY:
-        await browser.send_text(json.dumps({"type": "Error", "description": "Server missing DEEPGRAM_API_KEY"}))
+        await browser.send_text(
+            json.dumps({"type": "Error", "description": "Server missing DEEPGRAM_API_KEY"})
+        )
         await browser.close()
         return
 
@@ -337,7 +395,7 @@ async def ws_endpoint(browser: WebSocket):
                             break
                         data = msg.get("bytes")
                         if data is not None:
-                            await dg.send(data)          # raw PCM16 audio frames
+                            await dg.send(data)  # raw PCM16 audio frames
                         # text messages from the browser (if any) are ignored for now
                 except WebSocketDisconnect:
                     pass
@@ -347,7 +405,7 @@ async def ws_endpoint(browser: WebSocket):
             async def dg_to_browser():
                 async for message in dg:
                     if isinstance(message, (bytes, bytearray)):
-                        await browser.send_bytes(bytes(message))   # agent audio
+                        await browser.send_bytes(bytes(message))  # agent audio
                         continue
                     # JSON event: act on function calls, swap voice per language,
                     # and forward everything to the UI.
@@ -374,14 +432,23 @@ async def ws_endpoint(browser: WebSocket):
                             turn_lang = dg_langs[0][:2].lower() if dg_langs else None
                             if turn_lang not in ("es", "en"):
                                 turn_lang = detect_language(content)
-                            switch_to = turn_lang if (turn_lang and turn_lang != state["lang"]) else None
+                            switch_to = (
+                                turn_lang if (turn_lang and turn_lang != state["lang"]) else None
+                            )
                             if switch_to:
                                 state["lang"] = switch_to
-                                print(f"[lang] -> {switch_to}  (dg={dg_langs or 'none'}, '{content[:48]}')", flush=True)
-                                await dg.send(json.dumps({
-                                    "type": "UpdateSpeak",
-                                    "speak": speak_for_language(switch_to, vertical),
-                                }))
+                                print(
+                                    f"[lang] -> {switch_to}  (dg={dg_langs or 'none'}, '{content[:48]}')",
+                                    flush=True,
+                                )
+                                await dg.send(
+                                    json.dumps(
+                                        {
+                                            "type": "UpdateSpeak",
+                                            "speak": speak_for_language(switch_to, vertical),
+                                        }
+                                    )
+                                )
                             evt["lang"] = turn_lang if turn_lang in ("es", "en") else state["lang"]
                         else:
                             evt["lang"] = state["lang"]
@@ -391,7 +458,17 @@ async def ws_endpoint(browser: WebSocket):
                     except (WebSocketDisconnect, RuntimeError):
                         break
 
-            await asyncio.gather(browser_to_dg(), dg_to_browser())
+            # Either peer may end a call. Cancel and await the remaining pump so
+            # a normal upstream close cannot leave browser.receive() waiting forever.
+            pumps = [asyncio.create_task(browser_to_dg()), asyncio.create_task(dg_to_browser())]
+            try:
+                done, _ = await asyncio.wait(pumps, return_when=asyncio.FIRST_COMPLETED)
+                for task in done:
+                    task.result()
+            finally:
+                for task in pumps:
+                    task.cancel()
+                await asyncio.gather(*pumps, return_exceptions=True)
     except Exception as exc:  # noqa: BLE001 — surface any bridge error to the UI
         try:
             await browser.send_text(json.dumps({"type": "Error", "description": str(exc)}))
@@ -401,14 +478,21 @@ async def ws_endpoint(browser: WebSocket):
         # Call bookkeeping: count the call, flag after-hours saves, run QA.
         # Store writes run off the event loop (other calls may still be live).
         if call["transcript"] or call["tools"]:
+
             def _bookkeep():
                 try:
-                    metrics.record(tenant, call["id"], "call_handled",
-                                   turns=len(call["transcript"]), vertical=vertical)
+                    metrics.record(
+                        tenant,
+                        call["id"],
+                        "call_handled",
+                        turns=len(call["transcript"]),
+                        vertical=vertical,
+                    )
                     if _is_after_hours(vertical):
                         metrics.record(tenant, call["id"], "after_hours")
                 except Exception as exc:  # noqa: BLE001
                     print(f"[metrics] record failed: {exc}", flush=True)
+
             await asyncio.to_thread(_bookkeep)
             _score_call_async(tenant, call["id"], call["transcript"], call["tools"])
         try:

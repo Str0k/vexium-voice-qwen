@@ -1,10 +1,12 @@
 """Run ONCE after creating the Tablestore instance in the Alibaba console."""
+
 import os
-import tablestore
+
 from dotenv import load_dotenv
-from tablestore import OTSClient, TableMeta, TableOptions, ReservedThroughput, CapacityUnit
+from tablestore import CapacityUnit, OTSClient, ReservedThroughput, TableMeta, TableOptions
 
 load_dotenv()  # read TABLESTORE_* from .env like the server does
+
 
 def get_client() -> OTSClient:
     return OTSClient(
@@ -14,14 +16,16 @@ def get_client() -> OTSClient:
         os.environ["TABLESTORE_INSTANCE"],
     )
 
+
 TABLES = [
     # (table_name, [(pk_col, pk_type), ...])
-    ("vx_events",    [("tenant", "STRING"), ("event_id", "STRING")]),
-    ("vx_bookings",  [("tenant", "STRING"), ("booking_id", "STRING")]),
-    ("vx_callers",   [("tenant", "STRING"), ("phone", "STRING")]),
-    ("vx_tenants",   [("tenant", "STRING")]),
+    ("vx_events", [("tenant", "STRING"), ("event_id", "STRING")]),
+    ("vx_bookings", [("tenant", "STRING"), ("booking_id", "STRING")]),
+    ("vx_callers", [("tenant", "STRING"), ("phone", "STRING")]),
+    ("vx_tenants", [("tenant", "STRING")]),
     ("vx_reminders", [("tenant", "STRING"), ("reminder_id", "STRING")]),
 ]
+
 
 def provision():
     client = get_client()
@@ -32,6 +36,7 @@ def provision():
         table_meta = TableMeta(table_name, schema_of_primary_key)
         client.create_table(table_meta, opts, throughput)
         print(f"Created table: {table_name}")
+
 
 if __name__ == "__main__":
     provision()

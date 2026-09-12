@@ -8,6 +8,7 @@ client-side function calls), and reused by the Twilio bridge in Phase 3.
 For the MVP/demo this is all in-memory. Phase 4 will persist bookings to
 `appointments.json`. Prices/services are invented but realistic — tune freely.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -16,12 +17,14 @@ from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
 
-load_dotenv()
-
 import integrations.calendar_calcom as cal
 import integrations.payments_stripe as pay
 import integrations.sms as sms
-import metrics, memory, reminders
+import memory
+import metrics
+import reminders
+
+load_dotenv()
 
 # ── Clinic profile (override via .env if you like) ──────────────────────────
 CLINIC = {
@@ -30,8 +33,7 @@ CLINIC = {
     "phone": os.getenv("BUSINESS_PHONE", "(713) 555-0182"),
     "hours_human": os.getenv(
         "BUSINESS_HOURS_HUMAN",
-        "lunes a viernes de 9 de la mañana a 6 de la tarde, "
-        "sábados de 9 a 2, domingos cerrado",
+        "lunes a viernes de 9 de la mañana a 6 de la tarde, sábados de 9 a 2, domingos cerrado",
     ),
 }
 
@@ -61,8 +63,12 @@ def services_text() -> str:
 # Opening hours per weekday (Monday=0 … Sunday=6). (open_hour, close_hour) where
 # close_hour is the last hour an appointment can START (1-hour slots).
 BUSINESS_HOURS = {
-    0: (9, 18), 1: (9, 18), 2: (9, 18), 3: (9, 18), 4: (9, 18),  # Mon–Fri
-    5: (9, 14),                                                    # Sat
+    0: (9, 18),
+    1: (9, 18),
+    2: (9, 18),
+    3: (9, 18),
+    4: (9, 18),  # Mon–Fri
+    5: (9, 14),  # Sat
     # Sunday (6) closed — absent from the map.
 }
 
@@ -130,19 +136,30 @@ def check_availability(requested_datetime: str = "", **_) -> dict:
         }
     base = {"requested": _fmt(dt)}
     if dt.weekday() not in BUSINESS_HOURS:
-        return {**base, "available": False, "reason": "closed_day",
-                "message": "La clínica está cerrada ese día.",
-                "alternatives": _free_slots_from(dt)}
+        return {
+            **base,
+            "available": False,
+            "reason": "closed_day",
+            "message": "La clínica está cerrada ese día.",
+            "alternatives": _free_slots_from(dt),
+        }
     if not _is_open(dt):
         oh = BUSINESS_HOURS[dt.weekday()]
-        return {**base, "available": False, "reason": "outside_hours",
-                "message": f"Ese horario está fuera del horario de atención "
-                           f"({oh[0]}:00–{oh[1]}:00).",
-                "alternatives": _free_slots_from(dt)}
+        return {
+            **base,
+            "available": False,
+            "reason": "outside_hours",
+            "message": f"Ese horario está fuera del horario de atención ({oh[0]}:00–{oh[1]}:00).",
+            "alternatives": _free_slots_from(dt),
+        }
     if _is_busy(dt):
-        return {**base, "available": False, "reason": "slot_taken",
-                "message": "Ese horario ya está reservado.",
-                "alternatives": _free_slots_from(dt)}
+        return {
+            **base,
+            "available": False,
+            "reason": "slot_taken",
+            "message": "Ese horario ya está reservado.",
+            "alternatives": _free_slots_from(dt),
+        }
     return {**base, "available": True, "message": "Disponible."}
 
 
@@ -151,8 +168,16 @@ def _confirmation_code(seed: str) -> str:
     return f"VX-{digest}"
 
 
-def book_appointment(caller_name="", phone="", service="", preferred_datetime="",
-                     language="es", tenant="dental", call_id="", **_):
+def book_appointment(
+    caller_name="",
+    phone="",
+    service="",
+    preferred_datetime="",
+    language="es",
+    tenant="dental",
+    call_id="",
+    **_,
+):
     res = cal.create_booking(preferred_datetime, caller_name, phone, service)
     if res.get("status") not in ("booked", "simulated"):
         return {"status": "error", "message": res.get("detail", "booking failed")}
@@ -167,37 +192,65 @@ def book_appointment(caller_name="", phone="", service="", preferred_datetime=""
         except Exception as exc:  # noqa: BLE001
             print(f"[reminders] scheduling failed: {exc}", flush=True)
     code = _confirmation_code(f"{caller_name}|{phone}|{preferred_datetime}")
-    return {"status": "confirmed", "booking_uid": res.get("booking_uid", ""),
-            "confirmation_code": code,
-            "calendar": "cal.com" if res.get("status") == "booked" else "simulated",
-            "booking": {"caller_name": caller_name, "phone": phone, "service": service,
-                        "preferred_datetime": res.get("start", preferred_datetime),
-                        "language": language}}
+    return {
+        "status": "confirmed",
+        "booking_uid": res.get("booking_uid", ""),
+        "confirmation_code": code,
+        "calendar": "cal.com" if res.get("status") == "booked" else "simulated",
+        "booking": {
+            "caller_name": caller_name,
+            "phone": phone,
+            "service": service,
+            "preferred_datetime": res.get("start", preferred_datetime),
+            "language": language,
+        },
+    }
 
-def take_deposit(amount_usd=0, service="", phone="", language="es", tenant="dental", call_id="", **_):
+
+def take_deposit(
+    amount_usd=0, service="", phone="", language="es", tenant="dental", call_id="", **_
+):
     link = pay.create_deposit_link(float(amount_usd), f"{service} deposit")
     if link.get("simulated"):
         # Never text a dead demo link to a real phone (SMS may be live even when
         # Stripe isn't) — the flow still completes and the metric still records.
         print("[payments] simulated link NOT texted to the caller", flush=True)
     else:
-        body = (f"Para confirmar tu cita de {service}, paga el deposito de ${amount_usd}: {link['url']}"
-                if language == "es" else
-                f"To hold your {service} appointment, pay your ${amount_usd} deposit: {link['url']}")
+        body = (
+            f"Para confirmar tu cita de {service}, paga el deposito de ${amount_usd}: {link['url']}"
+            if language == "es"
+            else f"To hold your {service} appointment, pay your ${amount_usd} deposit: {link['url']}"
+        )
         sms.send_sms(phone, body)
-    metrics.record(tenant, call_id, "deposit_pending", amount_usd=float(amount_usd), session_id=link["session_id"])
-    return {"status": "link_sent", "url": link["url"], "amount_usd": amount_usd,
-            "payments": "simulated" if link.get("simulated") else "stripe"}
+    metrics.record(
+        tenant,
+        call_id,
+        "deposit_pending",
+        amount_usd=float(amount_usd),
+        session_id=link["session_id"],
+    )
+    return {
+        "status": "link_sent",
+        "url": link["url"],
+        "amount_usd": amount_usd,
+        "payments": "simulated" if link.get("simulated") else "stripe",
+    }
+
 
 def send_confirmation(phone="", message="", **_):
     return {"status": "sent", "sms": sms.send_sms(phone, message)}
+
 
 def recall_caller(phone="", tenant="dental", **_):
     prof = memory.get_caller_profile(tenant, phone)
     return {"status": "found", "profile": prof} if prof else {"status": "new_caller"}
 
-def escalate_to_human(reason="", caller_name="", phone="", summary="", tenant="dental", call_id="", **_):
+
+def escalate_to_human(
+    reason="", caller_name="", phone="", summary="", tenant="dental", call_id="", **_
+):
     import os as _os
+
     staff = _os.getenv("STAFF_PHONE", "")
     if staff:
         sms.send_sms(staff, f"[Vexium handoff] {caller_name} ({phone}): {reason}. {summary}")

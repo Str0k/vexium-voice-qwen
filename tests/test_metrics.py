@@ -1,4 +1,6 @@
-import metrics, integrations.tablestore_store as store
+import integrations.tablestore_store as store
+import metrics
+
 
 def test_summary_aggregates(monkeypatch):
     fake = []

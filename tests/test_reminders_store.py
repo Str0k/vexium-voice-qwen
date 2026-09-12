@@ -1,15 +1,20 @@
 """Reminders end-to-end on the store: booking schedules T-24h/T-1h, the
 /run-due-reminders path fires exactly what is due, idempotently."""
+
 import time
 from datetime import datetime
 
-import reminders
 import integrations.tablestore_store as store
+import reminders
 
 
 def _fresh_memory(monkeypatch):
-    for k in ("TABLESTORE_ENDPOINT", "TABLESTORE_ACCESS_KEY_ID",
-              "TABLESTORE_ACCESS_KEY_SECRET", "TABLESTORE_INSTANCE"):
+    for k in (
+        "TABLESTORE_ENDPOINT",
+        "TABLESTORE_ACCESS_KEY_ID",
+        "TABLESTORE_ACCESS_KEY_SECRET",
+        "TABLESTORE_INSTANCE",
+    ):
         monkeypatch.delenv(k, raising=False)
     store.get_client.cache_clear()
 
@@ -26,13 +31,15 @@ def test_schedule_then_fire_due_only_once(monkeypatch):
 
     sent = []
     # 7h later: the T-24h reminder (due at ~+6h) fires; the T-1h one doesn't.
-    fired = reminders.run_due_from_store("t1", now + 7 * 3600 * 1000,
-                                         send=lambda r: sent.append(r["phone"]))
+    fired = reminders.run_due_from_store(
+        "t1", now + 7 * 3600 * 1000, send=lambda r: sent.append(r["phone"])
+    )
     assert len(fired) == 1 and sent == ["+17135550182"]
 
     # Same moment again: idempotent, nothing re-fires.
-    fired2 = reminders.run_due_from_store("t1", now + 7 * 3600 * 1000,
-                                          send=lambda r: sent.append(r["phone"]))
+    fired2 = reminders.run_due_from_store(
+        "t1", now + 7 * 3600 * 1000, send=lambda r: sent.append(r["phone"])
+    )
     assert fired2 == [] and len(sent) == 1
 
 

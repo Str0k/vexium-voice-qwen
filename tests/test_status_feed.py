@@ -1,11 +1,13 @@
 """Ops surface for the dashboard: /status (integration health), /feed (activity),
 /run-due-reminders (scheduler entry point), /tts (Qwen spoken replies)."""
+
 from fastapi.testclient import TestClient
-import server
-import metrics
-import reminders
+
 import integrations.qwen_tts as qwen_tts
 import integrations.tablestore_store as store
+import metrics
+import reminders
+import server
 
 
 def test_status_reports_each_integration(monkeypatch):
@@ -53,14 +55,18 @@ def test_run_due_reminders_fires_and_records(monkeypatch):
 
 
 def test_tts_returns_audio_url(monkeypatch):
-    monkeypatch.setattr(qwen_tts, "synthesize", lambda text, lang, **k: {"status": "ok", "url": "https://a/b.wav"})
+    monkeypatch.setattr(
+        qwen_tts, "synthesize", lambda text, lang, **k: {"status": "ok", "url": "https://a/b.wav"}
+    )
     c = TestClient(server.app)
     r = c.post("/tts", json={"text": "Hola, ¿en qué le puedo ayudar?"})
     assert r.status_code == 200 and r.json()["url"].endswith(".wav")
 
 
 def test_tts_failure_is_502_not_fatal(monkeypatch):
-    monkeypatch.setattr(qwen_tts, "synthesize", lambda text, lang, **k: {"status": "error", "detail": "x"})
+    monkeypatch.setattr(
+        qwen_tts, "synthesize", lambda text, lang, **k: {"status": "error", "detail": "x"}
+    )
     c = TestClient(server.app)
     r = c.post("/tts", json={"text": "hola"})
     assert r.status_code == 502

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { dict } from "./i18n";
 import { resolveBridgeUrl, resolveHttpBase } from "./bridge";
 import { setupAnalyser, startOrbLoop, spawnRipple } from "./orb-driver";
+import { useMicrophoneAvailable } from "./browser-capabilities";
 
 const OUTPUT_RATE = 24000; // Aura-2 linear16 output
 const MAX_RETRIES = 3;           // auto-reconnect attempts when a connection fails to open
@@ -58,8 +59,11 @@ export default function CallWidget({ t, demos }) {
   const [langSwitches, setLangSwitches] = useState(0); // ES<->EN swaps this call
   const [copied, setCopied] = useState(false);
   const [orbFx, setOrbFx] = useState(""); // transient orb flash: answering | barging | swap
-  const [mode, setMode] = useState("voice"); // voice (Deepgram bridge) | text (Qwen /chat)
-  const [voiceReady, setVoiceReady] = useState(true); // /status: Deepgram configured?
+  const [preferredMode, setMode] = useState("voice");
+  const [providerVoiceReady, setProviderVoiceReady] = useState(false);
+  const microphoneAvailable = useMicrophoneAvailable();
+  const voiceReady = microphoneAvailable && providerVoiceReady;
+  const mode = voiceReady ? preferredMode : "text";
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
   const [speakOn, setSpeakOn] = useState(true); // Qwen TTS playback for text replies
@@ -123,23 +127,14 @@ export default function CallWidget({ t, demos }) {
   // where the mic APIs don't exist), default to the Qwen text mode and mark
   // voice as unavailable — never show a dead mic to a judge.
   useEffect(() => {
-    const insecure = typeof window !== "undefined"
-      && !window.isSecureContext
-      && window.location.hostname !== "localhost";
-    if (insecure) {
-      setVoiceReady(false);
-      setMode("text");
-      return;
-    }
-    fetch(`${resolveHttpBase()}/status`)
+    const controller = new AbortController();
+    fetch(`${resolveHttpBase()}/status`, { signal: controller.signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((s) => {
-        if (s && s.voice && !s.voice.connected) {
-          setVoiceReady(false);
-          setMode("text");
-        }
+        setProviderVoiceReady(Boolean(s?.voice?.connected));
       })
       .catch(() => {});
+    return () => controller.abort();
   }, []);
 
   function setPhase(p) { statusRef.current = p; setStatus(p); }
@@ -400,9 +395,9 @@ export default function CallWidget({ t, demos }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           vertical: verticalRef.current,
-          messages: next.map((m) => ({
+          messages: next.slice(-24).map((m) => ({
             role: m.role === "user" ? "user" : "assistant",
-            content: m.text,
+            content: m.text.slice(0, 2000),
           })),
         }),
       });

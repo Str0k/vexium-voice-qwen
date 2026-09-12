@@ -1,11 +1,16 @@
 """The store must run the FULL product with zero cloud credentials (in-memory
 fallback) and report its backend honestly — a fresh clone demos everything."""
+
 import integrations.tablestore_store as store
 
 
 def _fresh_memory(monkeypatch):
-    for k in ("TABLESTORE_ENDPOINT", "TABLESTORE_ACCESS_KEY_ID",
-              "TABLESTORE_ACCESS_KEY_SECRET", "TABLESTORE_INSTANCE"):
+    for k in (
+        "TABLESTORE_ENDPOINT",
+        "TABLESTORE_ACCESS_KEY_ID",
+        "TABLESTORE_ACCESS_KEY_SECRET",
+        "TABLESTORE_INSTANCE",
+    ):
         monkeypatch.delenv(k, raising=False)
     store.get_client.cache_clear()
 

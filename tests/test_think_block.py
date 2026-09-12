@@ -1,4 +1,6 @@
-import os, agent_config
+import agent_config
+
+
 def test_think_block_targets_qwen(monkeypatch):
     monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-test")
     blk = agent_config._think_block("dental")

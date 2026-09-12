@@ -8,6 +8,7 @@ dental vertical so the bridge can route to either by name.
 In-memory for the demo. Prices/menu are invented but realistic for an upscale
 modern Mexican restaurant — tune freely.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -16,9 +17,11 @@ from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
 
-load_dotenv()
+import memory
+import metrics
+import reminders
 
-import memory, metrics, reminders
+load_dotenv()
 
 # ── Restaurant profile (override via .env if you like) ──────────────────────
 RESTAURANT = {
@@ -92,7 +95,7 @@ POLICY = (
     "los niños son bienvenidos hasta las 8 de la noche y las mascotas solo en la terraza"
 )
 
-LARGE_PARTY = 8     # 8+ = card on file to hold the table
+LARGE_PARTY = 8  # 8+ = card on file to hold the table
 PRIVATE_EVENT = 12  # 13+ = route to private events, not a normal table
 
 
@@ -109,9 +112,12 @@ def menu_text() -> str:
 # ── Schedule rules (dinner-focused) ─────────────────────────────────────────
 # (open_hour, close_hour) where close_hour is the last hour a seating can START.
 BUSINESS_HOURS = {
-    1: (17, 22), 2: (17, 22), 3: (17, 22),  # Tue–Thu 5pm–10pm
-    4: (17, 23), 5: (17, 23),               # Fri–Sat 5pm–11pm
-    6: (13, 21),                            # Sun 1pm–9pm
+    1: (17, 22),
+    2: (17, 22),
+    3: (17, 22),  # Tue–Thu 5pm–10pm
+    4: (17, 23),
+    5: (17, 23),  # Fri–Sat 5pm–11pm
+    6: (13, 21),  # Sun 1pm–9pm
     # Monday (0) closed — absent from the map.
 }
 
@@ -178,8 +184,10 @@ def check_table_availability(requested_datetime: str = "", party_size: int = 0, 
             "available": False,
             "reason": "private_event",
             "party_size": party,
-            "message": (f"Un grupo de {party} se maneja como evento privado / "
-                        "salón privado, no como mesa regular."),
+            "message": (
+                f"Un grupo de {party} se maneja como evento privado / "
+                "salón privado, no como mesa regular."
+            ),
             "alternatives": [],
         }
 
@@ -196,21 +204,38 @@ def check_table_availability(requested_datetime: str = "", party_size: int = 0, 
     large = bool(party >= LARGE_PARTY)
 
     if dt.weekday() not in BUSINESS_HOURS:
-        return {**base, "available": False, "reason": "closed_day",
-                "message": "El restaurante está cerrado ese día (lunes cerramos).",
-                "alternatives": _free_slots_from(dt)}
+        return {
+            **base,
+            "available": False,
+            "reason": "closed_day",
+            "message": "El restaurante está cerrado ese día (lunes cerramos).",
+            "alternatives": _free_slots_from(dt),
+        }
     if not _is_open(dt):
         oh = BUSINESS_HOURS[dt.weekday()]
-        return {**base, "available": False, "reason": "outside_hours",
-                "message": f"Ese horario está fuera del servicio ({oh[0]}:00–{oh[1]}:00).",
-                "alternatives": _free_slots_from(dt)}
+        return {
+            **base,
+            "available": False,
+            "reason": "outside_hours",
+            "message": f"Ese horario está fuera del servicio ({oh[0]}:00–{oh[1]}:00).",
+            "alternatives": _free_slots_from(dt),
+        }
     if _is_busy(dt):
-        return {**base, "available": False, "reason": "fully_booked",
-                "message": "Esa hora ya está completa.",
-                "alternatives": _free_slots_from(dt)}
-    return {**base, "available": True, "large_party": large,
-            "message": ("Disponible." + (" Grupo grande: se pide tarjeta para garantizar."
-                                          if large else ""))}
+        return {
+            **base,
+            "available": False,
+            "reason": "fully_booked",
+            "message": "Esa hora ya está completa.",
+            "alternatives": _free_slots_from(dt),
+        }
+    return {
+        **base,
+        "available": True,
+        "large_party": large,
+        "message": (
+            "Disponible." + (" Grupo grande: se pide tarjeta para garantizar." if large else "")
+        ),
+    }
 
 
 def _confirmation_code(seed: str) -> str:
@@ -218,10 +243,18 @@ def _confirmation_code(seed: str) -> str:
     return f"VX-{digest}"
 
 
-def book_reservation(caller_name: str = "", phone: str = "", party_size: int = 0,
-                     reservation_datetime: str = "", occasion: str = "",
-                     seating_preference: str = "", language: str = "es",
-                     tenant: str = "restaurant", call_id: str = "", **_) -> dict:
+def book_reservation(
+    caller_name: str = "",
+    phone: str = "",
+    party_size: int = 0,
+    reservation_datetime: str = "",
+    occasion: str = "",
+    seating_preference: str = "",
+    language: str = "es",
+    tenant: str = "restaurant",
+    call_id: str = "",
+    **_,
+) -> dict:
     """Record a reservation: metric + guest memory + SMS reminders, same
     bookkeeping contract as the dental vertical so the dashboard adds up."""
     reservation = {
@@ -233,10 +266,14 @@ def book_reservation(caller_name: str = "", phone: str = "", party_size: int = 0
         "seating_preference": seating_preference,
         "language": language,
     }
-    service = f"Reservación para {party_size}" if language == "es" else f"Reservation for {party_size}"
+    service = (
+        f"Reservación para {party_size}" if language == "es" else f"Reservation for {party_size}"
+    )
     metrics.record(tenant, call_id, "booking_made", service=service)
     if phone:
-        memory.append_interaction(tenant, phone, f"Reserved table for {party_size} at {reservation_datetime}")
+        memory.append_interaction(
+            tenant, phone, f"Reserved table for {party_size} at {reservation_datetime}"
+        )
         try:  # best-effort, never fail the reservation over a reminder
             reminders.schedule_for_booking(tenant, phone, service, reservation_datetime, language)
         except Exception as exc:  # noqa: BLE001

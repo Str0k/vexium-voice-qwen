@@ -6,10 +6,15 @@ credentials the SAME api runs on an in-process store, so a fresh clone demos the
 full product — metrics, caller memory, reminders, ROI dashboard — with zero setup.
 `backend()` reports which mode is live; the dashboard surfaces it honestly.
 """
-import os, json, time, uuid, functools
+
+import functools
+import json
+import os
+import time
+import uuid
 
 import tablestore
-from tablestore import OTSClient, Row, Direction
+from tablestore import Direction, OTSClient, Row
 
 TBL_EVENTS = "vx_events"
 TBL_BOOKINGS = "vx_bookings"
@@ -17,8 +22,12 @@ TBL_CALLERS = "vx_callers"
 TBL_TENANTS = "vx_tenants"
 TBL_REMINDERS = "vx_reminders"
 
-_ENV_KEYS = ("TABLESTORE_ENDPOINT", "TABLESTORE_ACCESS_KEY_ID",
-             "TABLESTORE_ACCESS_KEY_SECRET", "TABLESTORE_INSTANCE")
+_ENV_KEYS = (
+    "TABLESTORE_ENDPOINT",
+    "TABLESTORE_ACCESS_KEY_ID",
+    "TABLESTORE_ACCESS_KEY_SECRET",
+    "TABLESTORE_INSTANCE",
+)
 
 
 def is_configured() -> bool:
@@ -48,8 +57,11 @@ class _MemoryOTS:
 
     def get_range(self, table, direction, start_pk, end_pk, *a, limit=200, **k):
         # Match on the fixed (non-INF) leading pk components, e.g. the tenant.
-        fixed = [(k_, v) for k_, v in start_pk
-                 if v is not tablestore.INF_MIN and v is not tablestore.INF_MAX]
+        fixed = [
+            (k_, v)
+            for k_, v in start_pk
+            if v is not tablestore.INF_MIN and v is not tablestore.INF_MAX
+        ]
         rows = []
         for pk, cols in self.tables.get(table, {}).items():
             if all(item in pk for item in fixed):
@@ -82,7 +94,7 @@ def _attr_dict(cols) -> dict:
 def _extract_cols(res):
     """Pull the attribute list out of a get_row result, tolerating the real SDK
     3-tuple (consumed, Row, token), our memory clone, and simpler test fakes."""
-    for x in (res if isinstance(res, tuple) else (res,)):
+    for x in res if isinstance(res, tuple) else (res,):
         if x is None:
             continue
         if hasattr(x, "attribute_columns"):
@@ -120,8 +132,9 @@ def _scan(table: str, tenant: str, second_pk: str, limit: int) -> list[dict]:
     end = [("tenant", tenant), (second_pk, tablestore.INF_MAX)]
     out: list[dict] = []
     while start is not None and len(out) < limit:
-        res = client.get_range(table, Direction.FORWARD, start, end,
-                               limit=min(200, limit - len(out)))
+        res = client.get_range(
+            table, Direction.FORWARD, start, end, limit=min(200, limit - len(out))
+        )
         out.extend(_attr_dict(r.attribute_columns) for r in _range_rows(res))
         start = res[1] if isinstance(res, tuple) and len(res) >= 4 else None
     return out[:limit]
@@ -129,11 +142,14 @@ def _scan(table: str, tenant: str, second_pk: str, limit: int) -> list[dict]:
 
 # ── Events (metrics / ROI feed) ──────────────────────────────────────────────
 
+
 def put_event(tenant: str, call_id: str, event: dict) -> str:
     eid = uuid.uuid4().hex
-    put_attrs(TBL_EVENTS, [("tenant", tenant), ("event_id", eid)],
-              {"call_id": call_id, "ts": _now_ms(),
-               "payload": json.dumps(event, ensure_ascii=False)})
+    put_attrs(
+        TBL_EVENTS,
+        [("tenant", tenant), ("event_id", eid)],
+        {"call_id": call_id, "ts": _now_ms(), "payload": json.dumps(event, ensure_ascii=False)},
+    )
     return eid
 
 
@@ -151,20 +167,28 @@ def list_events(tenant: str, limit: int = 1000) -> list[dict]:
 
 # ── Bookings ─────────────────────────────────────────────────────────────────
 
+
 def put_booking(tenant: str, booking: dict) -> str:
     bid = uuid.uuid4().hex
-    put_attrs(TBL_BOOKINGS, [("tenant", tenant), ("booking_id", bid)],
-              {"ts": _now_ms(), "data": json.dumps(booking, ensure_ascii=False)})
+    put_attrs(
+        TBL_BOOKINGS,
+        [("tenant", tenant), ("booking_id", bid)],
+        {"ts": _now_ms(), "data": json.dumps(booking, ensure_ascii=False)},
+    )
     return bid
 
 
 # ── Reminders (T-24h / T-1h appointment nudges) ──────────────────────────────
 
+
 def put_reminder(tenant: str, reminder: dict) -> str:
     rid = reminder.get("id") or uuid.uuid4().hex
     reminder = {**reminder, "id": rid}
-    put_attrs(TBL_REMINDERS, [("tenant", tenant), ("reminder_id", rid)],
-              {"data": json.dumps(reminder, ensure_ascii=False)})
+    put_attrs(
+        TBL_REMINDERS,
+        [("tenant", tenant), ("reminder_id", rid)],
+        {"data": json.dumps(reminder, ensure_ascii=False)},
+    )
     return rid
 
 
@@ -181,5 +205,8 @@ def list_reminders(tenant: str, limit: int = 1000) -> list[dict]:
 
 def save_reminder(tenant: str, reminder: dict) -> None:
     """Overwrite a reminder row (used to persist sent=True after firing)."""
-    put_attrs(TBL_REMINDERS, [("tenant", tenant), ("reminder_id", reminder["id"])],
-              {"data": json.dumps(reminder, ensure_ascii=False)})
+    put_attrs(
+        TBL_REMINDERS,
+        [("tenant", tenant), ("reminder_id", reminder["id"])],
+        {"data": json.dumps(reminder, ensure_ascii=False)},
+    )
