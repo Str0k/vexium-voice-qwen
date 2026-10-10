@@ -12,7 +12,7 @@ dependencies = [
     "openai>=3.13,<4",
     "pydantic>=2.13.5,<3",
     "python-dotenv>=1.2,<2",
-    "stripe>=15.6,<16",
+    "stripe>=15.6,<17",
     "tablestore>=6.4.8,<7",
     "uvicorn[standard]>=0.52.4,<1",
     "websockets>=17.1,<18",
@@ -25,7 +25,7 @@ dev = [
     "pytest-cov>=7.1,<8",
     "pytest-socket>=0.7,<1",
     "respx>=0.23.1,<1",
-    "ruff==0.16.7",
+    "ruff==0.16.10",
 ]
 
 [tool.uv]
