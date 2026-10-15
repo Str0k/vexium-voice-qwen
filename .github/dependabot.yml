@@ -1,3 +1,8 @@
+# Version updates run monthly and land in one grouped PR per ecosystem.
+# Security updates do not wait for the schedule: the `security` group in each
+# entry opens one PR as soon as an advisory affects a dependency. That needs
+# Dependabot alerts and security updates enabled (Settings > Code security);
+# without them only the monthly version updates arrive.
 version: 2
 updates:
   - package-ecosystem: uv
@@ -8,6 +13,9 @@ updates:
     groups:
       python:
         patterns: ['*']
+      security:
+        applies-to: security-updates
+        patterns: ['*']
   - package-ecosystem: npm
     directory: /web
     schedule:
@@ -16,10 +24,16 @@ updates:
     groups:
       web:
         patterns: ['*']
+      security:
+        applies-to: security-updates
+        patterns: ['*']
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
     groups:
       actions:
+        patterns: ['*']
+      security:
+        applies-to: security-updates
         patterns: ['*']
