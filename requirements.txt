@@ -4,7 +4,7 @@ aiofiles==24.1.0
     # via alibabacloud-credentials
 aiohappyeyeballs==2.7.1
     # via aiohttp
-aiohttp==3.14.3
+aiohttp==3.14.4
     # via
     #   alibabacloud-tea
     #   darabonba-core
@@ -101,7 +101,7 @@ idna==3.19
     #   yarl
 jiter==0.16.0
     # via openai
-multidict==6.8.0
+multidict==6.9.1
     # via
     #   aiohttp
     #   yarl
@@ -170,7 +170,7 @@ tzdata==2026.3 ; sys_platform == 'win32'
     # via tzlocal
 tzlocal==5.4.4
     # via apscheduler
-urllib3==2.7.0
+urllib3==2.8.0
     # via
     #   requests
     #   tablestore
